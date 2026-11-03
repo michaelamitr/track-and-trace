@@ -2,7 +2,10 @@
   "name": "track-and-trace",
   "version": "1.0.0",
   "description": "",
-  "scripts": {},
+  "scripts": {
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -15,5 +18,10 @@
   },
   "packageManager": "pnpm@12.16.1",
   "type": "module",
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
 }
