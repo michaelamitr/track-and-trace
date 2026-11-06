@@ -50,9 +50,9 @@ and as strings `09:30:00.500Z` sorts before `09:30:00Z`.
 
 ### Out of scope: conflicting copies
 
-The same `eventId` with different business content (`occurredAt`, `eventType`, `facilityId`) is a
-conflict, not a retry. It is handled before the projection (quarantine,
-[AC-12](acceptance-scenarios.md)) and is out of scope for `project()`.
+Copies with the same `eventId` may differ only in `receivedAt`. Any other difference, in the
+envelope or the payload (including `scannerId`), is a conflict ([AC-12](acceptance-scenarios.md)).
+A conflict is quarantined before the projection and is out of scope for `project()`.
 
 ## Output of `project()`
 

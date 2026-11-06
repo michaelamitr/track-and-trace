@@ -1,8 +1,8 @@
 # Acceptance Scenarios
 
 - **AC-01** Normal journey: final status `DELIVERED` and a complete history.
-- **AC-02** Duplicate scan: one logical record, no duplicate action.
-- **AC-03** Out-of-order scans: correct final status and chronological history.
+- **AC-02** Duplicate scan: one logical record, no duplicate action. Implemented by: [R1](tracking-projection.md#projection-rules).
+- **AC-03** Out-of-order scans: correct final status and chronological history. Implemented by: [R2 and R6](tracking-projection.md#projection-rules).
 - **AC-04** Tracking restart: messages received during the outage are processed.
 - **AC-05** Tracking database lost: state is rebuilt by event replay.
 - **AC-06** Broker down during registration: the registration event is reliably published after recovery.
