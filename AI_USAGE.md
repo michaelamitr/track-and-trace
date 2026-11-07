@@ -8,6 +8,7 @@ This log records how AI was used, where it was wrong, and how I verified its out
 | Tool | Used for |
 |---|---|
 | Claude (Anthropic), in a claude.ai project | Step-by-step guidance, explanations of backend concepts, drafts of configuration, schemas, tests and documentation, review of my changes |
+| Claude Code (Anthropic), in my local repository | Generating tests and code from rules I approved |
 
 ## Parts generated or substantially shaped by AI
 
@@ -17,6 +18,7 @@ This log records how AI was used, where it was wrong, and how I verified its out
 | `packages/contracts` schemas (`subjects.ts`, `envelope.ts`, `payloads.ts`, `events.ts`) | Drafted the Zod schemas from the assignment | Reviewed the design, decided on payload fields (see decisions below) |
 | `packages/contracts` tests | Drafted most of the tests | Wrote my own tests (non-positive `eventVersion`, unknown `eventType`), required `path` checks in all rejection tests |
 | `EVENTS.md` | Generated the event catalog | Reviewed it against the code |
+| Tracking projection (`project()`, its tests, `docs/tracking-projection.md`) | Wrote the tests, the implementation and the docs draft | Decided the rules R1–R6, reviewed the diffs |
 
 ## Cases where AI was wrong or incomplete
 
@@ -34,9 +36,12 @@ This log records how AI was used, where it was wrong, and how I verified its out
 - **Fix:** AI checked the repository on GitHub and confirmed there was no `console.log`. Since then, my work is always reviewed against the real repository, not against snippets or screenshots.
 - **Verification:** `git log` and the file contents on GitHub.
 
-### Minor
+### 3. Green tests that missed bugs
 
-- AI added a Czech comment to test code although the project convention is English code. Fixed.
+- **What AI proposed:** projection tests that all passed but could not detect some broken implementations: a tie-break test with random IDs (caught a bug only in about half of the runs), fixtures where `receivedAt` equaled `occurredAt` (swapping the two times went unnoticed), and no test that catches `localeCompare` instead of code-unit comparison of `eventId`s.
+- **How it was noticed:** mutation testing – running deliberately broken versions of `project()` against the tests.
+- **Fix:** fixed IDs, different `receivedAt` and `occurredAt` in fixtures, a test with uppercase letters in a UUID.
+- **Verification:** each of 30+ broken versions now fails at least one test.
 
 ## Decisions I made or explicitly approved
 
@@ -46,6 +51,7 @@ This log records how AI was used, where it was wrong, and how I verified its out
 - **No `registeredAt` in the `shipment.registered` payload** – the registration time is the envelope's `occurredAt`, so the same fact is not stored twice.
 - **`eventType` is part of the event**, not only of the NATS subject, so that a stored event stays self-describing.
 - **Version 1 schemas pin `eventVersion` and `producer`** for each event type.
+- **Projection rules R1–R6**, including the conflict definition – see `docs/tracking-projection.md`.
 - **Public repository** – this is a personal learning project.
 
 ## How I verify AI output
@@ -55,3 +61,4 @@ This log records how AI was used, where it was wrong, and how I verified its out
 - Rejection tests assert which field failed, not only that validation failed.
 - Review documentation against the code; JSON examples in `EVENTS.md` were validated against `LogisticsEventSchema`.
 - Review changes in the real repository, not in pasted snippets.
+- Mutation testing: a test suite is trusted only if deliberately broken implementations make it fail.
