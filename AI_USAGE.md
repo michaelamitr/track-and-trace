@@ -45,13 +45,8 @@ This log records how AI was used, where it was wrong, and how I verified its out
 
 ## Decisions I made or explicitly approved
 
-- **pnpm workspaces monorepo** with a shared `@tt/contracts` package that contains only contracts (subjects, schemas, types), no business logic.
-- **Zod** for runtime validation of events; consumers will use `safeParse` so that an invalid message does not crash a service.
-- **Notification subscribes to `shipment.registered`** and keeps its own copy of `recipientId`. Rejected alternative: adding `recipientId` to `parcel.delivered` and `sla.breached`, because Scan Ingestion does not know the recipient (it has no database and must not call the Shipment Service).
+- **Architecture decisions are recorded in `docs/adr/`** (ADR-0001 to ADR-0005).
 - **No `registeredAt` in the `shipment.registered` payload** – the registration time is the envelope's `occurredAt`, so the same fact is not stored twice.
-- **`eventType` is part of the event**, not only of the NATS subject, so that a stored event stays self-describing.
-- **Version 1 schemas pin `eventVersion` and `producer`** for each event type.
-- **Projection rules R1–R6**, including the conflict definition – see `docs/tracking-projection.md`.
 - **Public repository** – this is a personal learning project.
 
 ## How I verify AI output
