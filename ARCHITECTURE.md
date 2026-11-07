@@ -23,7 +23,7 @@ flowchart TB
   SLA["SLA monitoring<br/>watches deadlines"]
   NO["Notification<br/>simulated messages"]
   TRDB[("tracking_db<br/>events, read model, inbox")]
-  SLADB[("sla_db<br/>deadlines, incidents, outbox")]
+  SLADB[("sla_db<br/>deadlines, incidents, inbox, outbox")]
   NODB[("notification_db<br/>recipients, notifications, inbox")]
 
   ESHOP -- "POST /shipments" --> SH
@@ -64,7 +64,7 @@ its own database.
 | Shipment       | `POST /shipments`                  | shipments, outbox                  | `shipment.registered`     |
 | Scan ingestion | `POST /scans`                      | no database                        | the four `parcel.*` events |
 | Tracking       | NATS                               | events, read model, inbox          | nothing                   |
-| SLA monitoring | NATS + its own deadline scheduler  | deadlines, incidents, outbox       | `sla.breached`            |
+| SLA monitoring | NATS + its own deadline scheduler  | deadlines, incidents, inbox, outbox | `sla.breached`            |
 | Notification   | NATS                               | recipients, notifications, inbox   | nothing                   |
 
 ## Durable consumers
