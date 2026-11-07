@@ -35,7 +35,10 @@ and as strings `09:30:00.500Z` sorts before `09:30:00Z`.
 ## Projection rules
 
 - **R1** Copies with the same `eventId` are duplicates (a technical retry), not anomalies. They are
-  counted once, and the copy with the earliest `receivedAt` is kept.
+  counted once, and the copy with the earliest `receivedAt` is kept. If two copies have the same
+  `receivedAt` instant (equal `Date.parse`, e.g. `08:01:00Z` and `08:01:00.000Z`), the one whose
+  `receivedAt` string is code-unit smaller (`a < b`) is kept. This is only a tie-breaker: which
+  instant is earlier is still decided by `Date.parse`.
 - **R2** Events are ordered by `occurredAt`, then by lifecycle phase (`REGISTERED` < `ACCEPTED` <
   `AT_HUB` < `OUT_FOR_DELIVERY` < `DELIVERED`), then by `eventId` as a stable tie-breaker. Never by
   arrival order. The `eventId` tie-breaker uses plain code-unit comparison (`a < b`), not

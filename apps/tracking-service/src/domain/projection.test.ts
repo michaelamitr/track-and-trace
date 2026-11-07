@@ -96,6 +96,25 @@ describe('project', () => {
     }
   })
 
+  it('R1: keeps the code-unit smaller receivedAt when both copies are the same instant', () => {
+    const eventId = randomUUID()
+    // The same instant written two ways. As code units "." sorts before "Z", so .000Z is kept.
+    const plain = scan('parcel.delivered', '2026-10-28T14:00:00Z', {
+      eventId,
+      receivedAt: '2026-10-28T14:01:00Z',
+    })
+    const withMillis = scan('parcel.delivered', '2026-10-28T14:00:00Z', {
+      eventId,
+      receivedAt: '2026-10-28T14:01:00.000Z',
+    })
+
+    for (const events of [[plain, withMillis], [withMillis, plain]]) {
+      const { history } = project(events)
+
+      expect(history.map((entry) => entry.receivedAt)).toEqual(['2026-10-28T14:01:00.000Z'])
+    }
+  })
+
   it('R2/R6: orders by occurredAt when the delivery arrives before an earlier scan', () => {
     const result = project([
       scan('parcel.delivered', '2026-10-28T14:00:00Z'),
