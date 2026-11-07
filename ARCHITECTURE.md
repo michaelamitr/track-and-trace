@@ -69,7 +69,7 @@ its own database.
 
 ## Durable consumers
 
-(planned, lesson 2.1)
+[packages/messaging/src/consumers.ts](packages/messaging/src/consumers.ts)
 
 | Consumer         | Filter subjects                                                                                     |
 | ---------------- | --------------------------------------------------------------------------------------------------- |

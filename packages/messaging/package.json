@@ -1,0 +1,20 @@
+{
+  "name": "@tt/messaging",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nats-io/jetstream": "^3.4.0",
+    "@nats-io/transport-node": "^3.4.0",
+    "@tt/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "testcontainers": "^12.2.1"
+  }
+}

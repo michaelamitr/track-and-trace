@@ -4,6 +4,7 @@
   "description": "",
   "scripts": {
     "test": "pnpm -r test",
+    "test:integration": "pnpm -r test:integration",
     "typecheck": "pnpm -r typecheck",
     "infra:up": "docker compose up -d --wait",
     "infra:down": "docker compose down"

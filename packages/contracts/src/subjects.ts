@@ -1,3 +1,5 @@
+import type { LogisticsEvent } from './events.js'
+
 export const SUBJECTS = {
   shipmentRegistered: 'logistics.shipment.registered.v1',
   parcelAccepted: 'logistics.parcel.accepted.v1',
@@ -8,3 +10,12 @@ export const SUBJECTS = {
 } as const
 
 export type Subject = (typeof SUBJECTS)[keyof typeof SUBJECTS]
+
+// The subject is derived from the event itself (ADR-0003). The return type is
+// checked by the compiler: an event type or version without a matching entry
+// in SUBJECTS fails typecheck.
+export function subjectForEvent(
+  event: Pick<LogisticsEvent, 'eventType' | 'eventVersion'>,
+): Subject {
+  return `logistics.${event.eventType}.v${event.eventVersion}`
+}

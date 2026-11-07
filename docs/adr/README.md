@@ -5,5 +5,6 @@
 - [ADR-0003](0003-self-describing-versioned-events.md): the envelope carries `eventType`, `eventVersion` and `producer`; subjects are versioned.
 - [ADR-0004](0004-deterministic-tracking-projection.md): the tracking projection is a pure function that gives the same result for any delivery order.
 - [ADR-0005](0005-quarantine-conflicting-events.md): copies with the same `eventId` that differ in anything other than `receivedAt` are quarantined.
+- [ADR-0006](0006-shared-messaging-package.md): `@tt/messaging` owns the stream and consumer configuration as code and the publish/consume rules.
 
 ADRs are not edited after acceptance; a changed decision gets a new ADR and the old one is marked "Superseded by ADR-000N".
