@@ -15,6 +15,7 @@
     "@tt/contracts": "workspace:*"
   },
   "devDependencies": {
-    "testcontainers": "^12.2.1"
+    "testcontainers": "^12.2.1",
+    "yaml": "^2.9.1"
   }
 }
