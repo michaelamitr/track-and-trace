@@ -52,7 +52,7 @@ This log records how AI was used, where it was wrong, and how I verified its out
 
 ## Decisions I made or explicitly approved
 
-- **Architecture decisions are recorded in `docs/adr/`** (ADR-0001 to ADR-0005).
+- **Architecture decisions are recorded in `docs/adr/`** (ADR-0001 to ADR-0006).
 - **No `registeredAt` in the `shipment.registered` payload** – the registration time is the envelope's `occurredAt`, so the same fact is not stored twice.
 - **Public repository** – this is a personal learning project.
 
@@ -64,3 +64,4 @@ This log records how AI was used, where it was wrong, and how I verified its out
 - Review documentation against the code; JSON examples in `EVENTS.md` were validated against `LogisticsEventSchema`.
 - Review changes in the real repository, not in pasted snippets.
 - Mutation testing: a test suite is trusted only if deliberately broken implementations make it fail.
+- Every ADR records a decision I explicitly approved.
