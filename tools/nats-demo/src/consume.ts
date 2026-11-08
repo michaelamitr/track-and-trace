@@ -1,6 +1,6 @@
-import { jetstream } from '@nats-io/jetstream'
+import { jetstream, jetstreamManager } from '@nats-io/jetstream'
 import type { LogisticsEvent } from '@tt/contracts'
-import { connectNats, consumeEvents } from '@tt/messaging'
+import { connectNats, consumeEvents, verifyConsumer } from '@tt/messaging'
 
 const MODES = ['ok', 'fail', 'hang'] as const
 type Mode = (typeof MODES)[number]
@@ -24,6 +24,12 @@ async function handler(event: LogisticsEvent): Promise<void> {
 }
 
 const nc = await connectNats()
+try {
+  await verifyConsumer(await jetstreamManager(nc), 'tracking')
+} catch (err) {
+  await nc.close()
+  throw err
+}
 const handle = await consumeEvents(jetstream(nc), 'tracking', handler)
 console.log(`consuming from "tracking" with MODE=${mode}, Ctrl+C to stop`)
 

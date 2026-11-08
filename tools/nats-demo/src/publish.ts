@@ -1,6 +1,6 @@
-import { jetstream } from '@nats-io/jetstream'
+import { jetstream, jetstreamManager } from '@nats-io/jetstream'
 import type { LogisticsEvent } from '@tt/contracts'
-import { connectNats, publishEvent } from '@tt/messaging'
+import { connectNats, publishEvent, verifyStream } from '@tt/messaging'
 
 // Fixed default so that running the script twice publishes the same event
 // (and the second publish is reported as a duplicate within duplicate_window).
@@ -21,6 +21,7 @@ const event: LogisticsEvent = {
 
 const nc = await connectNats()
 try {
+  await verifyStream(await jetstreamManager(nc))
   const { seq, duplicate } = await publishEvent(jetstream(nc), event)
   console.log(`eventId=${event.eventId} seq=${seq} duplicate=${duplicate}`)
 } finally {

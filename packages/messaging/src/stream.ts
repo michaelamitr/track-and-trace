@@ -23,7 +23,7 @@ export const LOGISTICS_STREAM = {
 
 /**
  * Creates the stream if it is missing, otherwise updates it to the declared
- * config. Safe to call repeatedly, e.g. on every service start.
+ * config. Safe to call repeatedly; called by setupNats, not by services.
  */
 export async function ensureStream(jsm: JetStreamManager): Promise<StreamInfo> {
   try {

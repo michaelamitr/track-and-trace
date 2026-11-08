@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "demo:setup": "tsx src/setup.ts",
     "demo:publish": "tsx src/publish.ts",
     "demo:consume": "tsx src/consume.ts",
     "typecheck": "tsc --noEmit"

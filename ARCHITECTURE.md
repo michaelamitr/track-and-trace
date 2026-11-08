@@ -84,6 +84,8 @@ Which events each consumer receives follows [EVENTS.md](EVENTS.md).
 - At-least-once delivery; consumers are idempotent by `eventId` (inbox, planned
   lesson 3.1).
 - A consumer ACKs a message only after its database transaction commits.
+- The stream and durable consumers are created by `pnpm nats:setup` before services
+  start; services only verify them and fail fast.
 - Business order comes from `occurredAt`, not arrival order – see
   [docs/tracking-projection.md](docs/tracking-projection.md).
 - Services read only their own database; HTTP GET endpoints never read from
