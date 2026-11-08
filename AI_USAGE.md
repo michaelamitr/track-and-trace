@@ -43,6 +43,13 @@ This log records how AI was used, where it was wrong, and how I verified its out
 - **Fix:** fixed IDs, different `receivedAt` and `occurredAt` in fixtures, a test with uppercase letters in a UUID.
 - **Verification:** each of 30+ broken versions now fails at least one test.
 
+### 4. An architecture decision I had not approved
+
+- **What AI did:** ADR-0006 stated that every service creates the NATS stream and consumers on start. AI made that choice itself and recorded it as accepted.
+- **How I noticed:** I did not remember approving it and asked for the alternatives.
+- **Fix:** we compared the options; I chose a setup step with a startup check (fail fast); ADR-0006 was amended.
+- **Verification:** ADR-0006 and `setup.int.test.ts`.
+
 ## Decisions I made or explicitly approved
 
 - **Architecture decisions are recorded in `docs/adr/`** (ADR-0001 to ADR-0005).
