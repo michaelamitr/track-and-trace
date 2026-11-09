@@ -94,6 +94,7 @@ Which events each consumer receives follows [EVENTS.md](EVENTS.md).
 ## Further reading
 
 - [EVENTS.md](EVENTS.md) – event catalogue and contracts
+- [docs/shipment-api.md](docs/shipment-api.md) – Shipment Service HTTP contract (planned, lesson 2.2)
 - [docs/adr/README.md](docs/adr/README.md) – architecture decision records
 - [docs/tracking-projection.md](docs/tracking-projection.md) – tracking projection rules
 - [docs/acceptance-scenarios.md](docs/acceptance-scenarios.md) – acceptance scenarios
