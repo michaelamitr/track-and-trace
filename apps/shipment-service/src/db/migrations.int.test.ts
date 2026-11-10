@@ -77,16 +77,26 @@ function insert(client: pg.Client, row: ShipmentRow) {
   )
 }
 
-async function shipmentsTableExists(): Promise<boolean> {
+async function tableExists(table: 'shipments' | 'outbox'): Promise<boolean> {
   const result = await service.query<{ exists: boolean }>(
-    `SELECT to_regclass('public.shipments') IS NOT NULL AS exists`,
+    `SELECT to_regclass($1) IS NOT NULL AS exists`,
+    [`public.${table}`],
   )
   return result.rows[0]?.exists ?? false
+}
+
+function insertOutbox(client: pg.Client, eventId: string = randomUUID()) {
+  return client.query(`INSERT INTO outbox (event_id, subject, payload) VALUES ($1, $2, $3)`, [
+    eventId,
+    'logistics.shipment.registered.v1',
+    JSON.stringify({ eventId }),
+  ])
 }
 
 describe('as shipment_service after migrations up', () => {
   afterEach(async () => {
     await service.query('DELETE FROM shipments')
+    await service.query('DELETE FROM outbox')
   })
 
   it('inserts a valid row', async () => {
@@ -130,21 +140,62 @@ describe('as shipment_service after migrations up', () => {
     await expect(service.query('DROP TABLE shipments')).rejects.toMatchObject({
       code: INSUFFICIENT_PRIVILEGE,
     })
-    expect(await shipmentsTableExists()).toBe(true)
+    expect(await tableExists('shipments')).toBe(true)
+  })
+
+  it('inserts an outbox row with created_at set and published_at null, and can mark it published', async () => {
+    const eventId = randomUUID()
+    await insertOutbox(service, eventId)
+
+    const inserted = await service.query(
+      'SELECT created_at IS NOT NULL AS has_created_at, published_at FROM outbox WHERE event_id = $1',
+      [eventId],
+    )
+    expect(inserted.rows).toEqual([{ has_created_at: true, published_at: null }])
+
+    await service.query('UPDATE outbox SET published_at = now() WHERE event_id = $1', [eventId])
+    const updated = await service.query('SELECT published_at FROM outbox WHERE event_id = $1', [eventId])
+    expect(updated.rows[0]?.published_at).toBeInstanceOf(Date)
+  })
+
+  it('rejects a second outbox row with the same event_id', async () => {
+    const eventId = randomUUID()
+    await insertOutbox(service, eventId)
+
+    await expect(insertOutbox(service, eventId)).rejects.toMatchObject({ code: UNIQUE_VIOLATION })
+  })
+
+  it('has a partial index on created_at for unpublished rows', async () => {
+    const result = await service.query<{ indexdef: string }>(
+      `SELECT indexdef FROM pg_indexes WHERE tablename = 'outbox' AND indexname = 'outbox_unpublished_created_at_idx'`,
+    )
+    expect(result.rows[0]?.indexdef).toMatch(/\(created_at\) WHERE \(published_at IS NULL\)/)
+  })
+
+  it('cannot drop the outbox table', async () => {
+    await expect(service.query('DROP TABLE outbox')).rejects.toMatchObject({ code: INSUFFICIENT_PRIVILEGE })
+    expect(await tableExists('outbox')).toBe(true)
   })
 })
 
 describe('migrations down and up again', () => {
-  it('down removes the shipments table, up recreates it', async () => {
-    const down = await runMigrations({ databaseUrl: postgres.ownerUrl, direction: 'down', log: quiet })
-    expect(down.map((m) => m.name)).toEqual(['1794309982916_create-shipments'])
-    expect(await shipmentsTableExists()).toBe(false)
+  const down = () => runMigrations({ databaseUrl: postgres.ownerUrl, direction: 'down', log: quiet })
+
+  it('down removes the tables in reverse order, up recreates them', async () => {
+    expect((await down()).map((m) => m.name)).toEqual(['1794343443863_create-outbox'])
+    expect(await tableExists('outbox')).toBe(false)
+    expect(await tableExists('shipments')).toBe(true)
+
+    expect((await down()).map((m) => m.name)).toEqual(['1794309982916_create-shipments'])
+    expect(await tableExists('shipments')).toBe(false)
 
     const up = await runMigrations({ databaseUrl: postgres.ownerUrl, direction: 'up', log: quiet })
-    expect(up.map((m) => m.name)).toEqual(['1794309982916_create-shipments'])
-    expect(await shipmentsTableExists()).toBe(true)
+    expect(up.map((m) => m.name)).toEqual(['1794309982916_create-shipments', '1794343443863_create-outbox'])
+    expect(await tableExists('shipments')).toBe(true)
+    expect(await tableExists('outbox')).toBe(true)
 
-    // The recreated table is usable by shipment_service again (default privileges).
+    // The recreated tables are usable by shipment_service again (default privileges).
     await expect(insert(service, validRow())).resolves.toBeDefined()
+    await expect(insertOutbox(service)).resolves.toBeDefined()
   })
 })

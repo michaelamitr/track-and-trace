@@ -10,7 +10,8 @@
     "infra:down": "docker compose down",
     "nats:setup": "pnpm --filter @tt/messaging run setup",
     "db:migrate": "pnpm -r db:migrate",
-    "db:migrate:down": "pnpm --filter @tt/shipment-service db:migrate:down"
+    "db:migrate:down": "pnpm --filter @tt/shipment-service db:migrate:down",
+    "dev:shipment": "pnpm --filter @tt/shipment-service dev"
   },
   "keywords": [],
   "author": "",

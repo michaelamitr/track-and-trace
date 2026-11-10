@@ -56,12 +56,17 @@ its own database.
 
 ## Services
 
-(planned, phase 2–5) – except the Tracking projection logic, which exists in
-[apps/tracking-service/src/domain](apps/tracking-service/src/domain).
+(planned, phase 2–5) – except:
+
+- the Shipment service, implemented in [apps/shipment-service](apps/shipment-service/src):
+  `POST /shipments`, `GET /shipments/:shipmentId`, health endpoints, and publishing through a
+  transactional outbox ([ADR-0009](docs/adr/0009-transactional-outbox.md));
+- the Tracking projection logic, which exists in
+  [apps/tracking-service/src/domain](apps/tracking-service/src/domain).
 
 | Service        | Input                              | Owns (database)                    | Publishes                 |
 | -------------- | ---------------------------------- | ---------------------------------- | ------------------------- |
-| Shipment       | `POST /shipments`                  | shipments, outbox                  | `shipment.registered`     |
+| Shipment (implemented) | `POST /shipments`          | shipments, outbox                  | `shipment.registered`     |
 | Scan ingestion | `POST /scans`                      | no database                        | the four `parcel.*` events |
 | Tracking       | NATS                               | events, read model, inbox          | nothing                   |
 | SLA monitoring | NATS + its own deadline scheduler  | deadlines, incidents, inbox, outbox | `sla.breached`            |
@@ -84,6 +89,9 @@ Which events each consumer receives follows [EVENTS.md](EVENTS.md).
 - At-least-once delivery; consumers are idempotent by `eventId` (inbox, planned
   lesson 3.1).
 - A consumer ACKs a message only after its database transaction commits.
+- A producer with a database writes its events to an outbox in the same transaction as its
+  data; a relay inside the service publishes them (ADR-0009). Implemented in Shipment.
+- `correlationId` = `shipmentId` for every event (see [EVENTS.md](EVENTS.md)).
 - The stream and durable consumers are created by `pnpm nats:setup` before services
   start; services only verify them and fail fast.
 - Business order comes from `occurredAt`, not arrival order – see
@@ -94,7 +102,7 @@ Which events each consumer receives follows [EVENTS.md](EVENTS.md).
 ## Further reading
 
 - [EVENTS.md](EVENTS.md) – event catalogue and contracts
-- [docs/shipment-api.md](docs/shipment-api.md) – Shipment Service HTTP contract (planned, lesson 2.2)
+- [docs/shipment-api.md](docs/shipment-api.md) – Shipment Service HTTP contract
 - [docs/adr/README.md](docs/adr/README.md) – architecture decision records
 - [docs/tracking-projection.md](docs/tracking-projection.md) – tracking projection rules
 - [docs/acceptance-scenarios.md](docs/acceptance-scenarios.md) – acceptance scenarios
