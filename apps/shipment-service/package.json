@@ -1,0 +1,23 @@
+{
+  "name": "@tt/shipment-service",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "tsx --env-file=../../.env src/db/migrate-cli.ts up",
+    "db:migrate:down": "tsx --env-file=../../.env src/db/migrate-cli.ts down"
+  },
+  "dependencies": {
+    "node-pg-migrate": "^9.0.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "testcontainers": "^12.2.1",
+    "tsx": "^4.23.15",
+    "yaml": "^2.9.1"
+  }
+}

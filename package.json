@@ -8,7 +8,9 @@
     "typecheck": "pnpm -r typecheck",
     "infra:up": "docker compose up -d --wait",
     "infra:down": "docker compose down",
-    "nats:setup": "pnpm --filter @tt/messaging run setup"
+    "nats:setup": "pnpm --filter @tt/messaging run setup",
+    "db:migrate": "pnpm -r db:migrate",
+    "db:migrate:down": "pnpm --filter @tt/shipment-service db:migrate:down"
   },
   "keywords": [],
   "author": "",

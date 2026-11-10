@@ -7,5 +7,6 @@
 - [ADR-0005](0005-quarantine-conflicting-events.md): copies with the same `eventId` that differ in anything other than `receivedAt` are quarantined.
 - [ADR-0006](0006-shared-messaging-package.md): `@tt/messaging` owns the stream and consumer configuration as code and the publish/consume rules.
 - [ADR-0007](0007-idempotent-shipment-registration.md): `orderReference` is unique; a repeated registration returns the existing shipment and republishes the stored event (planned, lesson 2.2).
+- [ADR-0008](0008-database-access-and-migrations.md): plain SQL with `pg`; SQL migrations with node-pg-migrate run by `pnpm db:migrate` as `shipment_owner`; the service runs as `shipment_service` (data only).
 
 ADRs are not edited after acceptance; a changed decision gets a new ADR and the old one is marked "Superseded by ADR-000N".
