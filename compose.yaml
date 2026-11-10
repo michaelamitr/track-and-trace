@@ -15,5 +15,24 @@ services:
       timeout: 3s
       retries: 10
 
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      SHIPMENT_OWNER_PASSWORD: ${SHIPMENT_OWNER_PASSWORD:?Set SHIPMENT_OWNER_PASSWORD in .env}
+      SHIPMENT_SERVICE_PASSWORD: ${SHIPMENT_SERVICE_PASSWORD:?Set SHIPMENT_SERVICE_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   nats-data:
+  postgres-data:
