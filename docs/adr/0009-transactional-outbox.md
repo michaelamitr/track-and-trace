@@ -17,9 +17,9 @@ be published reliably after a broker outage.
 - An outbox relay runs **inside the service process**
   ([`outbox/relay.ts`](../../apps/shipment-service/src/outbox/relay.ts)). It **polls** the table
   about every second. Each round, in one transaction, it selects unpublished rows ordered by
-  `created_at` with `FOR UPDATE SKIP LOCKED`, publishes each with `publishEvent` (`msgID` =
-  `eventId`, waits for the ack), sets `published_at = now()` and commits. If publishing fails, the
-  round rolls back and is retried with capped exponential backoff.
+  `created_at` with `FOR UPDATE SKIP LOCKED`, publishes each to its stored subject with
+  `publishEvent` (`msgID` = `eventId`, waits for the ack), sets `published_at = now()` and
+  commits. If publishing fails, the round rolls back and is retried with capped exponential backoff.
 - Published rows are **kept**, with `published_at` set.
 - Table and index: [`migrations/…_create-outbox.sql`](../../apps/shipment-service/migrations).
 

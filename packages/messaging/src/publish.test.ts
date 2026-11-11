@@ -21,6 +21,16 @@ describe('publishEvent', () => {
     expect(options).toEqual({ msgID: event.eventId })
   })
 
+  it('publishes to an explicit subject when one is given', async () => {
+    const { js, publish } = fakeJs()
+    const event = parcelDelivered()
+
+    await publishEvent(js, event, { subject: 'logistics.custom.subject.v1' })
+    const [subject, , options] = publish.mock.calls[0]!
+    expect(subject).toBe('logistics.custom.subject.v1')
+    expect(options).toEqual({ msgID: event.eventId })
+  })
+
   it('throws for an invalid event and publishes nothing', async () => {
     const { js, publish } = fakeJs()
 

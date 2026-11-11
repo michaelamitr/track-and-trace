@@ -26,7 +26,7 @@ export type OutboxRelay = {
   stop(): Promise<void>
 }
 
-type OutboxRow = { event_id: string; payload: unknown }
+type OutboxRow = { event_id: string; subject: string; payload: unknown }
 
 /**
  * Publishes one batch of unpublished outbox rows. Returns the number of rows
@@ -53,7 +53,7 @@ export async function publishOutboxBatch(
     // SKIP LOCKED: rows locked by another relay instance are left to it
     // instead of blocking this one.
     const { rows } = await client.query<OutboxRow>(
-      `SELECT event_id, payload
+      `SELECT event_id, subject, payload
          FROM outbox
         WHERE published_at IS NULL
         ORDER BY created_at
@@ -62,8 +62,9 @@ export async function publishOutboxBatch(
       [batchSize],
     )
     for (const row of rows) {
-      // Waits for the JetStream ack; msgID = eventId (ADR-0006).
-      await publishEvent(js, row.payload)
+      // Publishes to the subject stored with the row and waits for the
+      // JetStream ack; msgID = eventId (ADR-0006).
+      await publishEvent(js, row.payload, { subject: row.subject })
     }
     if (rows.length > 0) {
       await client.query(`UPDATE outbox SET published_at = now() WHERE event_id = ANY($1::uuid[])`, [

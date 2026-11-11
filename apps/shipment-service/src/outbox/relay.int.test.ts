@@ -141,6 +141,18 @@ describe('outbox relay', () => {
     expect(messages.map((m) => m.msgId)).toEqual(ids)
   })
 
+  it('publishes each row to the subject stored in the outbox row', async () => {
+    const [id] = await addEvents(1)
+    // A subject that differs from subjectForEvent, as if the subject rules had changed since the row was written.
+    const stored = 'logistics.shipment.registered.legacy'
+    await db.pool.query('UPDATE outbox SET subject = $1 WHERE event_id = $2', [stored, id])
+
+    await expect(publishOutboxBatch(db.pool, nats.js, 10)).resolves.toBe(1)
+
+    const messages = await streamMessages(nats.jsm)
+    expect(messages.map((m) => ({ subject: m.subject, msgId: m.msgId }))).toEqual([{ subject: stored, msgId: id }])
+  })
+
   it('stop() lets the current round finish', async () => {
     await addEvents(1)
     let publishing!: () => void

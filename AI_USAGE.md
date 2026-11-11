@@ -55,6 +55,7 @@ This log records how AI was used, where it was wrong, and how I verified its out
 - **Architecture decisions are recorded in `docs/adr/`** (ADR-0001 to ADR-0006).
 - **No `registeredAt` in the `shipment.registered` payload** – the registration time is the envelope's `occurredAt`, so the same fact is not stored twice.
 - **Public repository** – this is a personal learning project.
+- **Shared database helpers (`@tt/db`)** – my idea after reviewing `apps/shipment-service/src/db/transaction.ts`; the pool, transaction and migration helpers will move to a shared package when a second service needs them (lesson 2.4).
 
 ## How I verify AI output
 
