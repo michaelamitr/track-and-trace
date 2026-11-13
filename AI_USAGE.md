@@ -19,6 +19,7 @@ This log records how AI was used, where it was wrong, and how I verified its out
 | `packages/contracts` tests | Drafted most of the tests | Wrote my own tests (non-positive `eventVersion`, unknown `eventType`), required `path` checks in all rejection tests |
 | `EVENTS.md` | Generated the event catalog | Reviewed it against the code |
 | Tracking projection (`project()`, its tests, `docs/tracking-projection.md`) | Wrote the tests, the implementation and the docs draft | Decided the rules R1–R6, reviewed the diffs |
+| Shipment Service (migrations, registration, transactional outbox and relay, HTTP API, tests) | Wrote the tests, the implementation and drafts of ADR-0007 to ADR-0009 and `docs/shipment-api.md` | Decided the API contract, idempotency rules, the outbox and `correlationId = shipmentId`; reviewed the diffs; tested it manually, including a NATS outage |
 
 ## Cases where AI was wrong or incomplete
 
@@ -52,7 +53,7 @@ This log records how AI was used, where it was wrong, and how I verified its out
 
 ## Decisions I made or explicitly approved
 
-- **Architecture decisions are recorded in `docs/adr/`** (ADR-0001 to ADR-0006).
+- **Architecture decisions are recorded in `docs/adr/`** (ADR-0001 to ADR-0009).
 - **No `registeredAt` in the `shipment.registered` payload** – the registration time is the envelope's `occurredAt`, so the same fact is not stored twice.
 - **Public repository** – this is a personal learning project.
 - **Shared database helpers (`@tt/db`)** – my idea after reviewing `apps/shipment-service/src/db/transaction.ts`; the pool, transaction and migration helpers will move to a shared package when a second service needs them (lesson 2.4).
@@ -66,3 +67,4 @@ This log records how AI was used, where it was wrong, and how I verified its out
 - Review changes in the real repository, not in pasted snippets.
 - Mutation testing: a test suite is trusted only if deliberately broken implementations make it fail.
 - Every ADR records a decision I explicitly approved.
+- Test failure scenarios by hand, not only with automated tests: stopping NATS while the Shipment Service was running showed that the service cannot start without NATS and that shutdown fails when NATS is down – neither was caught by the tests.
