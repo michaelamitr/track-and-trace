@@ -4,8 +4,10 @@
 
 Track-and-trace consists of five services that communicate only through events
 on NATS JetStream (stream `LOGISTICS_EVENTS`, subjects `logistics.>`). Each
-service owns its own PostgreSQL database (database per service), and there are
-no synchronous calls between services.
+service that needs persistence owns its own PostgreSQL database (database per
+service); Scan Ingestion has none
+([ADR-0010](docs/adr/0010-scan-ingestion-publishing.md)). There are no
+synchronous calls between services.
 
 Status: draft – parts marked (planned) are not implemented yet.
 
@@ -61,6 +63,10 @@ its own database.
 - the Shipment service, implemented in [apps/shipment-service](apps/shipment-service/src):
   `POST /shipments`, `GET /shipments/:shipmentId`, health endpoints, and publishing through a
   transactional outbox ([ADR-0009](docs/adr/0009-transactional-outbox.md));
+- the Scan ingestion service (designed, not implemented yet): `POST /scans` and health endpoints
+  ([docs/scan-ingestion-api.md](docs/scan-ingestion-api.md)); no database and no outbox, it answers
+  `202` only after the JetStream ack and publishes without `Nats-Msg-Id`
+  ([ADR-0010](docs/adr/0010-scan-ingestion-publishing.md));
 - the Tracking projection logic, which exists in
   [apps/tracking-service/src/domain](apps/tracking-service/src/domain).
 
@@ -91,6 +97,10 @@ Which events each consumer receives follows [EVENTS.md](EVENTS.md).
 - A consumer ACKs a message only after its database transaction commits.
 - A producer with a database writes its events to an outbox in the same transaction as its
   data; a relay inside the service publishes them (ADR-0009). Implemented in Shipment.
+- Scan ingestion has no database: it publishes inside the request and answers `202` only after
+  the JetStream ack; on `503` the scanner retries with the same `eventId` (ADR-0010).
+- `Nats-Msg-Id` = `eventId` is a per-producer choice: Shipment uses it, Scan ingestion does not,
+  so duplicate and conflicting scans reach the consumers (ADR-0010).
 - `correlationId` = `shipmentId` for every event (see [EVENTS.md](EVENTS.md)).
 - The stream and durable consumers are created by `pnpm nats:setup` before services
   start; services only verify them and fail fast.
@@ -103,6 +113,7 @@ Which events each consumer receives follows [EVENTS.md](EVENTS.md).
 
 - [EVENTS.md](EVENTS.md) – event catalogue and contracts
 - [docs/shipment-api.md](docs/shipment-api.md) – Shipment Service HTTP contract
+- [docs/scan-ingestion-api.md](docs/scan-ingestion-api.md) – Scan Ingestion Service HTTP contract
 - [docs/adr/README.md](docs/adr/README.md) – architecture decision records
 - [docs/tracking-projection.md](docs/tracking-projection.md) – tracking projection rules
 - [docs/acceptance-scenarios.md](docs/acceptance-scenarios.md) – acceptance scenarios

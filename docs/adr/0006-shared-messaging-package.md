@@ -1,6 +1,6 @@
 # ADR-0006: Shared messaging package
 
-Status: Accepted (recorded 2026-11-07, amended 2026-11-08)
+Status: Accepted (recorded 2026-11-07, amended 2026-11-08 and 2026-11-16)
 
 ## Context
 
@@ -34,6 +34,13 @@ stream and the durable consumers also need one agreed configuration.
 - Negative: services cannot start before the setup step has run.
 - A handler must commit its database transaction before it resolves, and must be idempotent by
   `eventId`, because a failed ack or a nak leads to redelivery.
+
+## Amendment 2026-11-16
+
+`msgID = eventId` is no longer a rule for every producer but a per-producer choice. The Shipment
+Service keeps it; Scan Ingestion publishes without `msgID`, so copies with the same `eventId` are
+not dropped by JetStream and conflicts reach Tracking
+([ADR-0010](0010-scan-ingestion-publishing.md)).
 
 ## Rejected alternatives
 

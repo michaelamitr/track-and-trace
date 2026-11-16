@@ -105,7 +105,24 @@ Four events produced from warehouse and courier scans. They share the same paylo
 | `parcel.out_for_delivery` | `logistics.parcel.out_for_delivery.v1` | Tracking |
 | `parcel.delivered` | `logistics.parcel.delivered.v1` | Tracking, SLA Monitoring, Notification |
 
-Producer: `scan-ingestion`.
+Producer: `scan-ingestion`, from `POST /scans` ([docs/scan-ingestion-api.md](docs/scan-ingestion-api.md)).
+
+Envelope values:
+
+| Field | Value |
+|---|---|
+| `eventId` | Assigned by the scanner, converted to lowercase. |
+| `shipmentId` | From the scan, converted to lowercase. |
+| `occurredAt` | Time of the scan, sent by the scanner. |
+| `receivedAt` | Set by Scan Ingestion when the request arrived. |
+| `correlationId` | `shipmentId`. |
+| `causationId` | `null`. |
+
+Scan events are published without `Nats-Msg-Id` ([ADR-0010](docs/adr/0010-scan-ingestion-publishing.md)),
+so the stream can contain several copies of one scan (same `eventId`, different `receivedAt`),
+e.g. after a retry with a lost response. Consumers deduplicate them by `eventId`.
+
+Payload (`data`):
 
 | Field | Type | Description |
 |---|---|---|
