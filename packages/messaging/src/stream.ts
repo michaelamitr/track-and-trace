@@ -14,8 +14,10 @@ export const LOGISTICS_STREAM = {
   subjects: ['logistics.>'],
   storage: StorageType.File,
   retention: RetentionPolicy.Limits,
-  // Publishes with the same msgID (= eventId) within this window are dropped
-  // as duplicates. Set explicitly instead of relying on the server default.
+  // Publishes with the same msgID within this window are dropped as
+  // duplicates. Only publishes with a msgID (publishEvent's default,
+  // msgID = eventId) are checked; Scan Ingestion publishes without one
+  // (ADR-0010). Set explicitly instead of relying on the server default.
   duplicate_window: nanos(2 * 60 * 1000),
   // 0 = no age limit: events are kept, not expired.
   max_age: 0,

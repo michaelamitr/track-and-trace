@@ -133,7 +133,7 @@ duplicate window and by the consumers' inbox. Every event of a shipment has
 |---|---|---|
 | `SHIPMENT_DATABASE_URL` | (required) | Runtime role `shipment_service`. |
 | `NATS_URL` | `nats://localhost:4222` | |
-| `PORT` | `3001` | |
+| `SHIPMENT_PORT` | `3001` | |
 | `HOST` | `127.0.0.1` | |
 
 At startup the service fails fast if the configuration is invalid, a migration is pending

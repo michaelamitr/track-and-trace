@@ -11,7 +11,8 @@
     "nats:setup": "pnpm --filter @tt/messaging run setup",
     "db:migrate": "pnpm -r db:migrate",
     "db:migrate:down": "pnpm --filter @tt/shipment-service db:migrate:down",
-    "dev:shipment": "pnpm --filter @tt/shipment-service dev"
+    "dev:shipment": "pnpm --filter @tt/shipment-service dev",
+    "dev:scan-ingestion": "pnpm --filter @tt/scan-ingestion-service dev"
   },
   "keywords": [],
   "author": "",

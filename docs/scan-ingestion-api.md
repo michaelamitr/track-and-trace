@@ -1,11 +1,13 @@
 # Scan Ingestion API
 
-The HTTP contract of the Scan Ingestion Service (`apps/scan-ingestion-service`, planned). Publishing
-is decided in [ADR-0010](adr/0010-scan-ingestion-publishing.md). The events are described in
+The HTTP contract of the Scan Ingestion Service
+([`apps/scan-ingestion-service`](../apps/scan-ingestion-service/src)). Publishing is decided in
+[ADR-0010](adr/0010-scan-ingestion-publishing.md). The events are described in
 [EVENTS.md](../EVENTS.md).
 
-Run it with `pnpm infra:up`, `pnpm nats:setup` and `pnpm dev:scan-ingestion` (planned; default
-`http://127.0.0.1:3002`). The OpenAPI document and Swagger UI are served at `/docs`.
+Run it with `pnpm infra:up`, `pnpm nats:setup` and `pnpm dev:scan-ingestion` (default
+`http://127.0.0.1:3002`). The OpenAPI document and Swagger UI are served at `/docs` (JSON at
+`/docs/json`).
 
 ## POST /scans
 
@@ -133,6 +135,17 @@ Copies differ only in `receivedAt`, so they are duplicates, not conflicts
 |---|---|---|
 | `GET /health/live` | The process is running: `{ "status": "ok" }`. | |
 | `GET /health/ready` | NATS is connected: `{ "status": "ready", "checks": { "nats": "ok" } }`. | NATS is not connected: `"status": "not_ready"` and `"nats": "failed"`. |
+
+## Configuration
+
+| Variable | Default | |
+|---|---|---|
+| `SCAN_INGESTION_PORT` | `3002` | Service-specific, because every service loads the same `.env`. |
+| `HOST` | `127.0.0.1` | Shared with the other services. |
+| `NATS_URL` | `nats://localhost:4222` | Shared with the other services. |
+
+At startup the service fails fast if the configuration is invalid, NATS is unreachable or the
+stream is missing ("Run `pnpm nats:setup` first.").
 
 ## Simplifications (MVP)
 

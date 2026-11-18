@@ -32,10 +32,11 @@ export function loadConfig(env: Env = process.env): Config {
     problems.push('NATS_URL must be a nats:// or tls:// URL.')
   }
 
-  const portText = env.PORT?.trim() || '3001'
+  // A service-specific name, because every service loads the same .env locally.
+  const portText = env.SHIPMENT_PORT?.trim() || '3001'
   const port = Number(portText)
   if (!/^\d+$/.test(portText) || port < 1 || port > 65535) {
-    problems.push(`PORT must be an integer from 1 to 65535, got "${portText}".`)
+    problems.push(`SHIPMENT_PORT must be an integer from 1 to 65535, got "${portText}".`)
   }
 
   const host = env.HOST?.trim() || '127.0.0.1'

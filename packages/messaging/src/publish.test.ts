@@ -31,6 +31,26 @@ describe('publishEvent', () => {
     expect(options).toEqual({ msgID: event.eventId })
   })
 
+  it('sets msgID = eventId when deduplicate is true', async () => {
+    const { js, publish } = fakeJs()
+    const event = parcelDelivered()
+
+    await publishEvent(js, event, { deduplicate: true })
+    const [, , options] = publish.mock.calls[0]!
+    expect(options).toEqual({ msgID: event.eventId })
+  })
+
+  it('publishes without msgID when deduplicate is false', async () => {
+    const { js, publish } = fakeJs()
+    const event = parcelDelivered()
+
+    await expect(publishEvent(js, event, { deduplicate: false })).resolves.toEqual({ seq: 7, duplicate: false })
+    const [subject, payload, options] = publish.mock.calls[0]!
+    expect(subject).toBe('logistics.parcel.delivered.v1')
+    expect(JSON.parse(payload)).toEqual(event)
+    expect(options?.msgID).toBeUndefined()
+  })
+
   it('throws for an invalid event and publishes nothing', async () => {
     const { js, publish } = fakeJs()
 

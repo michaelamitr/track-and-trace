@@ -63,8 +63,9 @@ its own database.
 - the Shipment service, implemented in [apps/shipment-service](apps/shipment-service/src):
   `POST /shipments`, `GET /shipments/:shipmentId`, health endpoints, and publishing through a
   transactional outbox ([ADR-0009](docs/adr/0009-transactional-outbox.md));
-- the Scan ingestion service (designed, not implemented yet): `POST /scans` and health endpoints
-  ([docs/scan-ingestion-api.md](docs/scan-ingestion-api.md)); no database and no outbox, it answers
+- the Scan ingestion service, implemented in [apps/scan-ingestion-service](apps/scan-ingestion-service/src):
+  `POST /scans` and health endpoints ([docs/scan-ingestion-api.md](docs/scan-ingestion-api.md));
+  no database and no outbox, it answers
   `202` only after the JetStream ack and publishes without `Nats-Msg-Id`
   ([ADR-0010](docs/adr/0010-scan-ingestion-publishing.md));
 - the Tracking projection logic, which exists in
@@ -73,7 +74,7 @@ its own database.
 | Service        | Input                              | Owns (database)                    | Publishes                 |
 | -------------- | ---------------------------------- | ---------------------------------- | ------------------------- |
 | Shipment (implemented) | `POST /shipments`          | shipments, outbox                  | `shipment.registered`     |
-| Scan ingestion | `POST /scans`                      | no database                        | the four `parcel.*` events |
+| Scan ingestion (implemented) | `POST /scans`        | no database                        | the four `parcel.*` events |
 | Tracking       | NATS                               | events, read model, inbox          | nothing                   |
 | SLA monitoring | NATS + its own deadline scheduler  | deadlines, incidents, inbox, outbox | `sla.breached`            |
 | Notification   | NATS                               | recipients, notifications, inbox   | nothing                   |
