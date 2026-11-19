@@ -117,8 +117,9 @@ The error body has the same shape as in the [Shipment API](shipment-api.md#error
 
 On `503`, `500` or a timeout the scanner retries the same scan with the same `eventId` (AC-07):
 
-- **NATS is down.** Nothing is stored; the service answers `503`. The retry succeeds once NATS is
-  back.
+- **NATS is down.** The service answers `503`. Usually nothing is stored, but the NATS client
+  may still send the buffered publish after it reconnects; that copy is then handled like the
+  next case. The retry succeeds once NATS is back.
 - **Stored, but the response was lost** (including a publish that timed out after the stream had
   stored it). The retry stores a second copy with the same `eventId` and a later `receivedAt`.
   Consumers deduplicate by `eventId` and keep the earliest `receivedAt`

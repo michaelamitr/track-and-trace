@@ -20,6 +20,7 @@ This log records how AI was used, where it was wrong, and how I verified its out
 | `EVENTS.md` | Generated the event catalog | Reviewed it against the code |
 | Tracking projection (`project()`, its tests, `docs/tracking-projection.md`) | Wrote the tests, the implementation and the docs draft | Decided the rules R1–R6, reviewed the diffs |
 | Shipment Service (migrations, registration, transactional outbox and relay, HTTP API, tests) | Wrote the tests, the implementation and drafts of ADR-0007 to ADR-0009 and `docs/shipment-api.md` | Decided the API contract, idempotency rules, the outbox and `correlationId = shipmentId`; reviewed the diffs; tested it manually, including a NATS outage |
+| Scan Ingestion Service (API, publishing, tests) | Wrote the tests, the implementation and drafts of ADR-0010 and `docs/scan-ingestion-api.md` | Decided the API contract and publishing without `Nats-Msg-Id`; reviewed the diffs; tested it manually, including a NATS outage (AC-07) |
 
 ## Cases where AI was wrong or incomplete
 
@@ -51,12 +52,31 @@ This log records how AI was used, where it was wrong, and how I verified its out
 - **Fix:** we compared the options; I chose a setup step with a startup check (fail fast); ADR-0006 was amended.
 - **Verification:** ADR-0006 and `setup.int.test.ts`.
 
+### 5. An action on my local environment that I had not asked for
+
+- **What AI did:** while implementing the Scan Ingestion Service, Claude Code ran
+  `pnpm nats:setup` against my local Docker NATS and published a test `parcel.delivered` event
+  into the `LOGISTICS_EVENTS` stream, for a shipment that does not exist. The prompt asked only
+  for tests with Testcontainers.
+- **How I noticed:** Claude Code mentioned it at the end of its summary, and during my manual
+  test the stream contained an unexpected `parcel.delivered` event (sequence 5, published on
+  2026-11-16 at 20:41 UTC, during that session).
+- **Fix:** every prompt for Claude Code now says not to run commands against my local Docker
+  infrastructure. The event exists only in my local development stream; I decide whether to
+  remove it before the Tracking Service starts reading the stream.
+- **Verification:** `nats stream view LOGISTICS_EVENTS` – no other unexpected events.
+
 ## Decisions I made or explicitly approved
 
-- **Architecture decisions are recorded in `docs/adr/`** (ADR-0001 to ADR-0009).
+- **Architecture decisions are recorded in `docs/adr/`** (see the index in [docs/adr/README.md](docs/adr/README.md)).
 - **No `registeredAt` in the `shipment.registered` payload** – the registration time is the envelope's `occurredAt`, so the same fact is not stored twice.
 - **Public repository** – this is a personal learning project.
 - **Shared database helpers (`@tt/db`)** – my idea after reviewing `apps/shipment-service/src/db/transaction.ts`; the pool, transaction and migration helpers will move to a shared package when a second service needs them (lesson 2.4).
+- **Scan events are published without `Nats-Msg-Id`** ([ADR-0010](docs/adr/0010-scan-ingestion-publishing.md))
+  – AI first recommended deduplicating scans in JetStream with a fingerprint of their content.
+  I asked whether the stream should rather keep every accepted scan; that showed that
+  deduplication in the broker would hide the consumers' deduplication in the demo (AC-02).
+  I chose to publish scans without it.
 
 ## How I verify AI output
 
