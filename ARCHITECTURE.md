@@ -24,7 +24,7 @@ flowchart TB
   TR["Tracking service<br/>status and history"]
   SLA["SLA monitoring<br/>watches deadlines"]
   NO["Notification<br/>simulated messages"]
-  TRDB[("tracking_db<br/>events, read model, inbox")]
+  TRDB[("tracking_db<br/>events (inbox), read model, quarantine")]
   SLADB[("sla_db<br/>deadlines, incidents, inbox, outbox")]
   NODB[("notification_db<br/>recipients, notifications, inbox")]
 
@@ -68,14 +68,17 @@ its own database.
   no database and no outbox, it answers
   `202` only after the JetStream ack and publishes without `Nats-Msg-Id`
   ([ADR-0010](docs/adr/0010-scan-ingestion-publishing.md));
-- the Tracking projection logic, which exists in
-  [apps/tracking-service/src/domain](apps/tracking-service/src/domain).
+- the Tracking service, designed but not implemented yet: only the projection logic exists, in
+  [apps/tracking-service/src/domain](apps/tracking-service/src/domain). Its HTTP contract is
+  [docs/tracking-api.md](docs/tracking-api.md); its database `tracking_db` (roles
+  `tracking_owner` and `tracking_service`, as in ADR-0008) holds only data derived from the
+  stream ([ADR-0011](docs/adr/0011-tracking-read-model.md)).
 
 | Service        | Input                              | Owns (database)                    | Publishes                 |
 | -------------- | ---------------------------------- | ---------------------------------- | ------------------------- |
 | Shipment (implemented) | `POST /shipments`          | shipments, outbox                  | `shipment.registered`     |
 | Scan ingestion (implemented) | `POST /scans`        | no database                        | the four `parcel.*` events |
-| Tracking       | NATS                               | events, read model, inbox          | nothing                   |
+| Tracking (designed) | NATS                          | events (also the inbox), read model, quarantine | nothing      |
 | SLA monitoring | NATS + its own deadline scheduler  | deadlines, incidents, inbox, outbox | `sla.breached`            |
 | Notification   | NATS                               | recipients, notifications, inbox   | nothing                   |
 
@@ -94,7 +97,8 @@ Which events each consumer receives follows [EVENTS.md](EVENTS.md).
 ## Processing guarantees
 
 - At-least-once delivery; consumers are idempotent by `eventId` (inbox, planned
-  lesson 3.1).
+  lesson 3.1). In Tracking the `tracking_events` table is the inbox, and conflicting copies are
+  quarantined ([ADR-0011](docs/adr/0011-tracking-read-model.md)).
 - A consumer ACKs a message only after its database transaction commits.
 - A producer with a database writes its events to an outbox in the same transaction as its
   data; a relay inside the service publishes them (ADR-0009). Implemented in Shipment.
@@ -115,6 +119,7 @@ Which events each consumer receives follows [EVENTS.md](EVENTS.md).
 - [EVENTS.md](EVENTS.md) – event catalogue and contracts
 - [docs/shipment-api.md](docs/shipment-api.md) – Shipment Service HTTP contract
 - [docs/scan-ingestion-api.md](docs/scan-ingestion-api.md) – Scan Ingestion Service HTTP contract
+- [docs/tracking-api.md](docs/tracking-api.md) – Tracking Service HTTP contract (designed)
 - [docs/adr/README.md](docs/adr/README.md) – architecture decision records
 - [docs/tracking-projection.md](docs/tracking-projection.md) – tracking projection rules
 - [docs/acceptance-scenarios.md](docs/acceptance-scenarios.md) – acceptance scenarios

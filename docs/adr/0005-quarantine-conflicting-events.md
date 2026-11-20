@@ -1,6 +1,6 @@
 # ADR-0005: Quarantine conflicting events
 
-Status: Accepted (recorded 2026-11-07)
+Status: Accepted (recorded 2026-11-07, amended 2026-11-20)
 
 ## Context
 
@@ -19,6 +19,13 @@ different events under the same `eventId` ([AC-12](../acceptance-scenarios.md)).
 
 - Positive: the projection can assume duplicates are identical.
 - Negative: a quarantine store and a way to inspect it are needed.
+
+## Amendment 2026-11-20
+
+Implemented in lesson 2.4 in the Tracking Service, not in lesson 3.1: conflicting copies are
+written to the general `quarantined_events` table with reason `CONFLICT`
+([ADR-0011](0011-tracking-read-model.md)) and shown by `GET /tracking/:shipmentId/anomalies`
+([tracking-api.md](../tracking-api.md)).
 
 ## Rejected alternatives
 

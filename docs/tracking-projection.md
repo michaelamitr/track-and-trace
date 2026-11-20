@@ -8,6 +8,12 @@ rule they check. The events themselves are described in [`EVENTS.md`](../EVENTS.
 Events are delivered at least once and can arrive out of order, so the result depends only on which
 events exist, never on how many times or in what order they were delivered.
 
+The service stores every event once in `tracking_events` and, for each message, recomputes the
+shipment with `project()` from all its stored events. Once the shipment's `shipment.registered`
+is stored, the result is saved in `shipment_tracking` (current state) and `tracking_history`
+(ordered history), which the [HTTP API](tracking-api.md) reads. All tables are derived from the
+stream and can be rebuilt by a replay. See [ADR-0011](adr/0011-tracking-read-model.md).
+
 ## Shipment statuses
 
 | Status | Event type | What physically happened |
@@ -24,7 +30,7 @@ events exist, never on how many times or in what order they were delivered.
 |---|---|---|
 | `occurredAt` | The physical event: the time of the scan. | In the event |
 | `receivedAt` | When Scan Ingestion accepted the scan. | In the event |
-| Processing time | When Tracking processed the event. | No |
+| Processing time | When Tracking processed the event. | Not in the event; Tracking stores the latest processing time per shipment (`shipment_tracking.updated_at`) |
 
 Only `occurredAt` drives the status. A scan that reaches the system late still happened at its
 `occurredAt`.
