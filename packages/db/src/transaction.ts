@@ -34,4 +34,3 @@ export async function withTransaction<T>(
     client.release(broken instanceof Error ? broken : undefined)
   }
 }
-

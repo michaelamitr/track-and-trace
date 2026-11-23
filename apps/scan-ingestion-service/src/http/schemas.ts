@@ -1,4 +1,5 @@
 import { EventEnvelopeSchema } from '@tt/contracts'
+import { errorBodySchema } from '@tt/http'
 import { z } from 'zod'
 import { SCAN_TYPES } from '../domain/scan.js'
 
@@ -27,25 +28,4 @@ export type ScanBody = z.infer<typeof ScanBodySchema>
 
 export const ScanAcceptedResponseSchema = z.object({ eventId: z.uuid() })
 
-export const ErrorCodeSchema = z.enum(['VALIDATION_ERROR', 'BAD_REQUEST', 'NOT_FOUND', 'DEPENDENCY_UNAVAILABLE', 'INTERNAL_ERROR'])
-
-export type ErrorCode = z.infer<typeof ErrorCodeSchema>
-
-export const ErrorBodySchema = z.object({
-  error: z.object({
-    code: ErrorCodeSchema,
-    message: z.string(),
-    details: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
-  }),
-})
-
-export type ErrorBody = z.infer<typeof ErrorBodySchema>
-
-export const LiveResponseSchema = z.object({ status: z.literal('ok') })
-
-const CheckSchema = z.enum(['ok', 'failed'])
-
-export const ReadyResponseSchema = z.object({
-  status: z.enum(['ready', 'not_ready']),
-  checks: z.object({ nats: CheckSchema }),
-})
+export const ErrorBodySchema = errorBodySchema()

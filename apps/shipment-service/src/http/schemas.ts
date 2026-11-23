@@ -1,4 +1,5 @@
 import { ShipmentRegisteredDataSchema } from '@tt/contracts'
+import { errorBodySchema } from '@tt/http'
 import { z } from 'zod'
 
 // Field rules are taken from @tt/contracts where the event has the same field,
@@ -35,32 +36,9 @@ export const ShipmentParamsSchema = z.object({
   shipmentId: z.uuid(),
 })
 
-export const ErrorCodeSchema = z.enum([
-  'VALIDATION_ERROR',
-  'BAD_REQUEST',
-  'NOT_FOUND',
-  'ORDER_CONFLICT',
-  'DEPENDENCY_UNAVAILABLE',
-  'INTERNAL_ERROR',
-])
+/** Error codes of this service, besides the shared ones of @tt/http. */
+export const OWN_ERROR_CODES = ['ORDER_CONFLICT'] as const
 
-export type ErrorCode = z.infer<typeof ErrorCodeSchema>
+export type OwnErrorCode = (typeof OWN_ERROR_CODES)[number]
 
-export const ErrorBodySchema = z.object({
-  error: z.object({
-    code: ErrorCodeSchema,
-    message: z.string(),
-    details: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
-  }),
-})
-
-export type ErrorBody = z.infer<typeof ErrorBodySchema>
-
-export const LiveResponseSchema = z.object({ status: z.literal('ok') })
-
-const CheckSchema = z.enum(['ok', 'failed'])
-
-export const ReadyResponseSchema = z.object({
-  status: z.enum(['ready', 'not_ready']),
-  checks: z.object({ database: CheckSchema, nats: CheckSchema }),
-})
+export const ErrorBodySchema = errorBodySchema(OWN_ERROR_CODES)

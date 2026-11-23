@@ -1,14 +1,14 @@
 import { jetstream, jetstreamManager } from '@nats-io/jetstream'
 import type { NatsConnection } from '@nats-io/transport-node'
+import { createPool, verifyNoPendingMigrations } from '@tt/db'
 import { connectNats, verifyStream } from '@tt/messaging'
 import type pg from 'pg'
 import { pino } from 'pino'
 import { createGetShipment } from './application/get-shipment.js'
 import { createRegisterShipment } from './application/register-shipment.js'
 import { loadConfig } from './config.js'
-import { createPool } from './db/pool.js'
-import { verifyNoPendingMigrations } from './db/verify-migrations.js'
-import { createReadinessCheck } from './health.js'
+import { MIGRATIONS_DIR } from './db/migrations.js'
+import { createHealthChecks } from './health.js'
 import { buildApp } from './http/app.js'
 import { startOutboxRelay } from './outbox/relay.js'
 
@@ -22,7 +22,7 @@ try {
   const config = loadConfig()
 
   pool = createPool(config.databaseUrl, log)
-  await verifyNoPendingMigrations(pool)
+  await verifyNoPendingMigrations(pool, MIGRATIONS_DIR)
 
   nc = await connectNats(config.natsUrl, {
     name: 'shipment-service',
@@ -35,7 +35,7 @@ try {
   const app = await buildApp({
     registerShipment: createRegisterShipment({ pool }),
     getShipment: createGetShipment({ pool }),
-    checkReadiness: createReadinessCheck({ pool, nc }),
+    checks: createHealthChecks({ pool, nc }),
     logger: log,
   })
 

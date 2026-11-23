@@ -1,15 +1,16 @@
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { runMigrations, verifyNoPendingMigrations } from '@tt/db'
+import { TEST_PASSWORDS } from '@tt/db/testing'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { runMigrations } from './db/migrations.js'
-import { verifyNoPendingMigrations } from './db/verify-migrations.js'
+import { MIGRATIONS_DIR } from './db/migrations.js'
 import { startTestDatabase, type TestDatabase } from './test-support.js'
 
 const run = promisify(execFile)
 const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url))
 const TSX = fileURLToPath(new URL('../node_modules/.bin/tsx', import.meta.url))
-const SERVICE_PASSWORD = 'testshipmentservice'
+const SERVICE_PASSWORD = TEST_PASSWORDS.shipment_service
 
 let db: TestDatabase
 
@@ -38,18 +39,18 @@ async function startServiceExpectingFailure(env: Record<string, string>) {
 
 describe('startup', () => {
   it('passes the migration check when every migration has run', async () => {
-    await expect(verifyNoPendingMigrations(db.pool)).resolves.toBeUndefined()
+    await expect(verifyNoPendingMigrations(db.pool, MIGRATIONS_DIR)).resolves.toBeUndefined()
   })
 
   it('fails fast when a migration is pending, without logging the connection string', async () => {
-    await runMigrations({ databaseUrl: db.postgres.ownerUrl, direction: 'down', log: () => {} })
+    await runMigrations({ databaseUrl: db.ownerUrl, dir: MIGRATIONS_DIR, direction: 'down', log: () => {} })
     try {
-      await expect(verifyNoPendingMigrations(db.pool)).rejects.toThrow(
+      await expect(verifyNoPendingMigrations(db.pool, MIGRATIONS_DIR)).rejects.toThrow(
         'Pending migrations: 1794343443863_create-outbox. Run pnpm db:migrate first.',
       )
 
       const { code, output } = await startServiceExpectingFailure({
-        SHIPMENT_DATABASE_URL: db.postgres.serviceUrl,
+        SHIPMENT_DATABASE_URL: db.serviceUrl,
         // Never reached: the migration check comes first.
         NATS_URL: 'nats://127.0.0.1:1',
       })
@@ -58,13 +59,13 @@ describe('startup', () => {
       expect(output).toContain('Run pnpm db:migrate first.')
       expect(output).not.toContain(SERVICE_PASSWORD)
     } finally {
-      await runMigrations({ databaseUrl: db.postgres.ownerUrl, direction: 'up', log: () => {} })
+      await runMigrations({ databaseUrl: db.ownerUrl, dir: MIGRATIONS_DIR, direction: 'up', log: () => {} })
     }
   })
 
   it('fails fast when NATS is unreachable', async () => {
     const { code, output } = await startServiceExpectingFailure({
-      SHIPMENT_DATABASE_URL: db.postgres.serviceUrl,
+      SHIPMENT_DATABASE_URL: db.serviceUrl,
       NATS_URL: 'nats://127.0.0.1:1',
     })
 

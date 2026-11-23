@@ -6,7 +6,7 @@ import { startNats, type TestNats } from '@tt/messaging/testing'
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createIngestScan } from '../application/ingest-scan.js'
-import { createReadinessCheck } from '../health.js'
+import { createHealthChecks } from '../health.js'
 import { streamMessages } from '../test-support.js'
 import { buildApp } from './app.js'
 
@@ -24,7 +24,7 @@ beforeAll(async () => {
   const js = jetstream(serviceNc, { timeout: 1_000 })
   app = await buildApp({
     ingestScan: createIngestScan({ publish: (event, options) => publishEvent(js, event, options) }),
-    checkReadiness: createReadinessCheck({ nc: serviceNc }),
+    checks: createHealthChecks({ nc: serviceNc }),
     now: () => NOW,
     logger: false,
   })

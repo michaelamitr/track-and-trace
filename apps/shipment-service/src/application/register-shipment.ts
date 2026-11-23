@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { withTransaction } from '@tt/db'
 import type pg from 'pg'
 import { insertOutboxEvent } from '../db/outbox.js'
 import {
@@ -6,7 +7,6 @@ import {
   insertShipmentIfNew,
   TRACKING_NUMBER_CONSTRAINT,
 } from '../db/shipments.js'
-import { withTransaction } from '../db/transaction.js'
 import {
   buildShipmentRegisteredEvent,
   matchesRequest,

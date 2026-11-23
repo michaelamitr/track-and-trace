@@ -1,7 +1,7 @@
+import { DatabaseUnavailableError } from '@tt/db'
 import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrderConflictError } from '../application/register-shipment.js'
-import { DatabaseUnavailableError } from '../db/errors.js'
 import type { Shipment } from '../domain/shipment.js'
 import { buildApp } from './app.js'
 
@@ -29,12 +29,14 @@ const response = { ...body, shipmentId: shipment.shipmentId, trackingNumber: shi
 
 const registerShipment = vi.fn()
 const getShipment = vi.fn()
-const checkReadiness = vi.fn()
+const checks = { database: vi.fn(), nats: vi.fn() }
 let app: FastifyInstance
 
 beforeEach(async () => {
   vi.resetAllMocks()
-  app = await buildApp({ registerShipment, getShipment, checkReadiness, logger: false })
+  checks.database.mockResolvedValue(undefined)
+  checks.nats.mockResolvedValue(undefined)
+  app = await buildApp({ registerShipment, getShipment, checks, logger: false })
 })
 
 afterEach(async () => {
@@ -175,8 +177,6 @@ describe('other routes', () => {
   })
 
   it('GET /health/ready returns 200 when the database and NATS are up', async () => {
-    checkReadiness.mockResolvedValue({ database: true, nats: true })
-
     const res = await app.inject({ method: 'GET', url: '/health/ready' })
 
     expect(res.statusCode).toBe(200)
@@ -184,15 +184,25 @@ describe('other routes', () => {
   })
 
   it.each([
-    [{ database: false, nats: true }, { database: 'failed', nats: 'ok' }],
-    [{ database: true, nats: false }, { database: 'ok', nats: 'failed' }],
-  ])('GET /health/ready returns 503 when a dependency is down (%o)', async (readiness, checks) => {
-    checkReadiness.mockResolvedValue(readiness)
+    ['only the database is', { database: 'failed', nats: 'ok' }],
+    ['the database and NATS are', { database: 'failed', nats: 'failed' }],
+  ])('GET /health/ready returns 503 when %s down', async (_label, expected) => {
+    checks.database.mockRejectedValue(new Error('down'))
+    if (expected.nats === 'failed') checks.nats.mockRejectedValue(new Error('down'))
 
     const res = await app.inject({ method: 'GET', url: '/health/ready' })
 
     expect(res.statusCode).toBe(503)
-    expect(res.json()).toEqual({ status: 'not_ready', checks })
+    expect(res.json()).toEqual({ status: 'not_ready', checks: expected })
+  })
+
+  it('GET /health/ready returns 200 and reports NATS when only NATS is down (ADR-0012)', async () => {
+    checks.nats.mockRejectedValue(new Error('down'))
+
+    const res = await app.inject({ method: 'GET', url: '/health/ready' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ status: 'ready', checks: { database: 'ok', nats: 'failed' } })
   })
 
   it('serves the OpenAPI document with both shipment routes', async () => {

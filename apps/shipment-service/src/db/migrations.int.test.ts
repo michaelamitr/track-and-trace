@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
+import { runMigrations } from '@tt/db'
+import { startPostgres, type TestPostgres } from '@tt/db/testing'
 import pg from 'pg'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { runMigrations } from './migrations.js'
-import { startPostgres, type TestPostgres } from './test-postgres.js'
+import { MIGRATIONS_DIR } from './migrations.js'
 
 // Postgres error codes (SQLSTATE).
 const UNIQUE_VIOLATION = '23505'
@@ -10,14 +11,16 @@ const CHECK_VIOLATION = '23514'
 const INSUFFICIENT_PRIVILEGE = '42501'
 
 let postgres: TestPostgres
+let ownerUrl: string
 let service: pg.Client
 
 const quiet = () => {}
 
 beforeAll(async () => {
   postgres = await startPostgres()
-  await runMigrations({ databaseUrl: postgres.ownerUrl, direction: 'up', log: quiet })
-  service = new pg.Client({ connectionString: postgres.serviceUrl })
+  ownerUrl = postgres.url('shipment_owner', 'shipment_db')
+  await runMigrations({ databaseUrl: ownerUrl, dir: MIGRATIONS_DIR, direction: 'up', log: quiet })
+  service = new pg.Client({ connectionString: postgres.url('shipment_service', 'shipment_db') })
   await service.connect()
 })
 
@@ -179,7 +182,7 @@ describe('as shipment_service after migrations up', () => {
 })
 
 describe('migrations down and up again', () => {
-  const down = () => runMigrations({ databaseUrl: postgres.ownerUrl, direction: 'down', log: quiet })
+  const down = () => runMigrations({ databaseUrl: ownerUrl, dir: MIGRATIONS_DIR, direction: 'down', log: quiet })
 
   it('down removes the tables in reverse order, up recreates them', async () => {
     expect((await down()).map((m) => m.name)).toEqual(['1794343443863_create-outbox'])
@@ -189,7 +192,7 @@ describe('migrations down and up again', () => {
     expect((await down()).map((m) => m.name)).toEqual(['1794309982916_create-shipments'])
     expect(await tableExists('shipments')).toBe(false)
 
-    const up = await runMigrations({ databaseUrl: postgres.ownerUrl, direction: 'up', log: quiet })
+    const up = await runMigrations({ databaseUrl: ownerUrl, dir: MIGRATIONS_DIR, direction: 'up', log: quiet })
     expect(up.map((m) => m.name)).toEqual(['1794309982916_create-shipments', '1794343443863_create-outbox'])
     expect(await tableExists('shipments')).toBe(true)
     expect(await tableExists('outbox')).toBe(true)

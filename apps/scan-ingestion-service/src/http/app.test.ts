@@ -31,7 +31,7 @@ const expectedEvent = {
 }
 
 const publish = vi.fn()
-const checkReadiness = vi.fn()
+const checks = { nats: vi.fn() }
 let logLines: Record<string, unknown>[]
 let app: FastifyInstance
 
@@ -40,7 +40,7 @@ beforeEach(async () => {
   publish.mockResolvedValue({ seq: 1, duplicate: false })
   logLines = []
   const logger = pino({ level: 'info' }, { write: (line: string) => logLines.push(JSON.parse(line)) })
-  app = await buildApp({ ingestScan: createIngestScan({ publish }), checkReadiness, now: () => NOW, logger })
+  app = await buildApp({ ingestScan: createIngestScan({ publish }), checks, now: () => NOW, logger })
 })
 
 afterEach(async () => {
@@ -248,7 +248,7 @@ describe('other routes', () => {
   })
 
   it('GET /health/ready returns 200 when NATS is connected', async () => {
-    checkReadiness.mockResolvedValue({ nats: true })
+    checks.nats.mockResolvedValue(undefined)
 
     const res = await app.inject({ method: 'GET', url: '/health/ready' })
 
@@ -257,7 +257,7 @@ describe('other routes', () => {
   })
 
   it('GET /health/ready returns 503 when NATS is not connected', async () => {
-    checkReadiness.mockResolvedValue({ nats: false })
+    checks.nats.mockRejectedValue(new Error('down'))
 
     const res = await app.inject({ method: 'GET', url: '/health/ready' })
 

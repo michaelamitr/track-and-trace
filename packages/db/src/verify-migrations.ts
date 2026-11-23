@@ -1,7 +1,5 @@
-import { readdir } from 'node:fs/promises'
-import { extname, basename } from 'node:path'
 import type pg from 'pg'
-import { MIGRATIONS_DIR, MIGRATIONS_TABLE } from './migrations.js'
+import { migrationNames, MIGRATIONS_TABLE } from './migrations.js'
 
 const UNDEFINED_TABLE = '42P01'
 
@@ -9,23 +7,12 @@ export class PendingMigrationsError extends Error {
   override name = 'PendingMigrationsError'
 }
 
-/** Migration names as node-pg-migrate records them: the file name without its extension. */
-export async function migrationNames(dir: string = MIGRATIONS_DIR): Promise<string[]> {
-  const files = await readdir(dir)
-  return files
-    .filter((file) => extname(file) === '.sql')
-    .map((file) => basename(file, '.sql'))
-    .sort()
-}
-
 /**
- * Startup check (ADR-0008): every migration file must be recorded in the
- * pgmigrations table. The service does not run migrations itself.
+ * Startup check (ADR-0008): every migration file in the service's `dir` must be
+ * recorded in the pgmigrations table of its database. The service does not run migrations
+ * itself. Rejects a `dir` without migrations (a wrong path), see migrationNames.
  */
-export async function verifyNoPendingMigrations(
-  pool: pg.Pool,
-  dir: string = MIGRATIONS_DIR,
-): Promise<void> {
+export async function verifyNoPendingMigrations(pool: pg.Pool, dir: string): Promise<void> {
   const expected = await migrationNames(dir)
   let applied: Set<string>
   try {

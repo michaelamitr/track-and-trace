@@ -107,10 +107,14 @@ lists the failing fields; `500` never contains internal details (they are logged
 
 ## Health
 
+Readiness follows [ADR-0012](adr/0012-readiness-reflects-request-path.md): the service is ready
+when it can answer its HTTP requests, which need only the database. NATS is reported for
+information.
+
 | Endpoint | `200` | `503` |
 |---|---|---|
 | `GET /health/live` | The process is up: `{ "status": "ok" }`. | |
-| `GET /health/ready` | A database query works and NATS is connected: `{ "status": "ready", "checks": { "database": "ok", "nats": "ok" } }`. | A dependency is down: `"status": "not_ready"` and the failed check is `"failed"`. |
+| `GET /health/ready` | A database query works: `{ "status": "ready", "checks": { "database": "ok", "nats": "ok" } }`. With NATS disconnected still `200`, with `"nats": "failed"`; registrations work and their events wait in the outbox. | The database is unavailable: `"status": "not_ready"` and `"database": "failed"`. |
 
 ## Publishing
 

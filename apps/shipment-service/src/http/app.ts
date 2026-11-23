@@ -1,21 +1,12 @@
-import swagger from '@fastify/swagger'
-import swaggerUi from '@fastify/swagger-ui'
-import Fastify, { type FastifyBaseLogger, type FastifyInstance, type FastifyServerOptions } from 'fastify'
-import {
-  jsonSchemaTransform,
-  serializerCompiler,
-  validatorCompiler,
-  type ZodTypeProvider,
-} from 'fastify-type-provider-zod'
+import { createHttpApp, NotFoundError, registerHealthRoutes, type LoggerOption } from '@tt/http'
+import type { FastifyInstance } from 'fastify'
 import type { GetShipment } from '../application/get-shipment.js'
 import type { RegisterShipment } from '../application/register-shipment.js'
 import { toIsoUtc, type Shipment } from '../domain/shipment.js'
-import type { CheckReadiness } from '../health.js'
-import { errorBody, handleError, NotFoundError } from './errors.js'
+import type { ShipmentHealthChecks } from '../health.js'
+import { mapServiceError } from './errors.js'
 import {
   ErrorBodySchema,
-  LiveResponseSchema,
-  ReadyResponseSchema,
   RegisterShipmentBodySchema,
   ShipmentParamsSchema,
   ShipmentResponseSchema,
@@ -25,9 +16,9 @@ import {
 export type AppDeps = {
   registerShipment: RegisterShipment
   getShipment: GetShipment
-  checkReadiness: CheckReadiness
+  checks: ShipmentHealthChecks
   /** A ready logger (main.ts) or Fastify logger options; tests pass false. */
-  logger?: FastifyBaseLogger | FastifyServerOptions['logger']
+  logger?: LoggerOption
 }
 
 function toResponse(shipment: Shipment): ShipmentResponse {
@@ -42,34 +33,14 @@ function toResponse(shipment: Shipment): ShipmentResponse {
   }
 }
 
-function isLoggerInstance(logger: AppDeps['logger']): logger is FastifyBaseLogger {
-  return typeof logger === 'object' && logger !== null && typeof (logger as FastifyBaseLogger).child === 'function'
-}
-
 /** Builds the HTTP app without listening, so tests can use app.inject. */
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
-  const logger = deps.logger ?? true
-  const app = Fastify(isLoggerInstance(logger) ? { loggerInstance: logger } : { logger })
-    .withTypeProvider<ZodTypeProvider>()
-
-  app.setValidatorCompiler(validatorCompiler)
-  app.setSerializerCompiler(serializerCompiler)
-  app.setErrorHandler(handleError)
-  app.setNotFoundHandler((request, reply) =>
-    reply.status(404).send(errorBody('NOT_FOUND', `Route ${request.method} ${request.url} not found.`)),
-  )
-
-  await app.register(swagger, {
-    openapi: {
-      info: {
-        title: 'Shipment Service',
-        description: 'Registers shipments and publishes shipment.registered (docs/shipment-api.md).',
-        version: '1.0.0',
-      },
-    },
-    transform: jsonSchemaTransform,
+  const app = await createHttpApp({
+    title: 'Shipment Service',
+    description: 'Registers shipments and publishes shipment.registered (docs/shipment-api.md).',
+    mapServiceError,
+    logger: deps.logger,
   })
-  await app.register(swaggerUi, { routePrefix: '/docs' })
 
   const errorResponses = {
     400: ErrorBodySchema,
@@ -123,32 +94,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     },
   )
 
-  app.get(
-    '/health/live',
-    { schema: { summary: 'The process is up', response: { 200: LiveResponseSchema } } },
-    async () => ({ status: 'ok' as const }),
-  )
-
-  app.get(
-    '/health/ready',
-    {
-      schema: {
-        summary: 'The database and NATS are reachable',
-        response: { 200: ReadyResponseSchema, 503: ReadyResponseSchema },
-      },
-    },
-    async (_request, reply) => {
-      const result = await deps.checkReadiness()
-      const ready = result.database && result.nats
-      return reply.status(ready ? 200 : 503).send({
-        status: ready ? 'ready' : 'not_ready',
-        checks: {
-          database: result.database ? 'ok' : 'failed',
-          nats: result.nats ? 'ok' : 'failed',
-        },
-      })
-    },
-  )
+  // ADR-0012: requests need only the database; events wait in the outbox while NATS is down.
+  registerHealthRoutes(app, {
+    required: { database: deps.checks.database },
+    informational: { nats: deps.checks.nats },
+    readySummary: 'The database is reachable; NATS is reported only',
+  })
 
   return app
 }

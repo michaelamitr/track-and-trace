@@ -1,13 +1,13 @@
 import { jetstream, type JetStreamClient } from '@nats-io/jetstream'
 import type { NatsConnection } from '@nats-io/transport-node'
+import { createPool } from '@tt/db'
 import { connectNats, ensureStream, LOGISTICS_STREAM } from '@tt/messaging'
 import { startNats, type TestNats } from '@tt/messaging/testing'
 import type { FastifyInstance } from 'fastify'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createGetShipment } from '../application/get-shipment.js'
 import { createRegisterShipment } from '../application/register-shipment.js'
-import { createPool } from '../db/pool.js'
-import { createReadinessCheck } from '../health.js'
+import { createHealthChecks } from '../health.js'
 import { startOutboxRelay, type OutboxRelay } from '../outbox/relay.js'
 import { outboxRows, quietLog, startTestDatabase, streamMessages, type TestDatabase } from '../test-support.js'
 import { buildApp } from './app.js'
@@ -28,7 +28,7 @@ beforeAll(async () => {
   app = await buildApp({
     registerShipment: createRegisterShipment({ pool: db.pool }),
     getShipment: createGetShipment({ pool: db.pool }),
-    checkReadiness: createReadinessCheck({ pool: db.pool, nc: serviceNc }),
+    checks: createHealthChecks({ pool: db.pool, nc: serviceNc }),
     logger: false,
   })
 })
@@ -203,8 +203,9 @@ describe('POST /shipments', () => {
     await nats.stopServer()
     try {
       const ready = await app.inject({ method: 'GET', url: '/health/ready' })
-      expect(ready.statusCode).toBe(503)
-      expect(ready.json().checks).toEqual({ database: 'ok', nats: 'failed' })
+      // Still ready: requests do not need NATS (ADR-0012).
+      expect(ready.statusCode).toBe(200)
+      expect(ready.json()).toEqual({ status: 'ready', checks: { database: 'ok', nats: 'failed' } })
 
       const res = await post(newBody())
       expect(res.statusCode).toBe(201)
@@ -223,7 +224,9 @@ describe('POST /shipments', () => {
     expect(messages.map((m) => m.event)).toEqual([row?.payload])
 
     await vi.waitFor(async () => {
-      expect((await app.inject({ method: 'GET', url: '/health/ready' })).statusCode).toBe(200)
+      const ready = await app.inject({ method: 'GET', url: '/health/ready' })
+      expect(ready.statusCode).toBe(200)
+      expect(ready.json().checks).toEqual({ database: 'ok', nats: 'ok' })
     })
   }, 60_000)
 })
@@ -271,7 +274,7 @@ describe('database unavailable', () => {
     const deadApp = await buildApp({
       registerShipment: createRegisterShipment({ pool: deadPool }),
       getShipment: createGetShipment({ pool: deadPool }),
-      checkReadiness: createReadinessCheck({ pool: deadPool, nc: serviceNc }),
+      checks: createHealthChecks({ pool: deadPool, nc: serviceNc }),
       logger: false,
     })
     try {
@@ -282,7 +285,8 @@ describe('database unavailable', () => {
       expect(posted.statusCode).toBe(503)
       expect(posted.json().error.code).toBe('DEPENDENCY_UNAVAILABLE')
       expect(fetched.statusCode).toBe(503)
-      expect(ready.json().checks).toEqual({ database: 'failed', nats: 'ok' })
+      expect(ready.statusCode).toBe(503)
+      expect(ready.json()).toEqual({ status: 'not_ready', checks: { database: 'failed', nats: 'ok' } })
     } finally {
       await deadApp.close()
       await deadPool.end()

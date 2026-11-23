@@ -71,7 +71,7 @@ This log records how AI was used, where it was wrong, and how I verified its out
 - **Architecture decisions are recorded in `docs/adr/`** (see the index in [docs/adr/README.md](docs/adr/README.md)).
 - **No `registeredAt` in the `shipment.registered` payload** – the registration time is the envelope's `occurredAt`, so the same fact is not stored twice.
 - **Public repository** – this is a personal learning project.
-- **Shared database helpers (`@tt/db`)** – my idea after reviewing `apps/shipment-service/src/db/transaction.ts`; the pool, transaction and migration helpers will move to a shared package when a second service needs them (lesson 2.4).
+- **Shared database helpers (`@tt/db`)** – my idea after reviewing `apps/shipment-service/src/db/transaction.ts`; the pool, transaction and migration helpers were moved to the shared package in lesson 2.4.
 - **Scan events are published without `Nats-Msg-Id`** ([ADR-0010](docs/adr/0010-scan-ingestion-publishing.md))
   – AI first recommended deduplicating scans in JetStream with a fingerprint of their content.
   I asked whether the stream should rather keep every accepted scan; that showed that

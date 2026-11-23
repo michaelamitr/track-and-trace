@@ -1,14 +1,17 @@
 // Integration-test helpers only.
 import type { JetStreamClient, JetStreamManager } from '@nats-io/jetstream'
+import { createPool, runMigrations } from '@tt/db'
+import { startPostgres } from '@tt/db/testing'
 import { LOGISTICS_STREAM } from '@tt/messaging'
 import pg from 'pg'
-import { runMigrations } from './db/migrations.js'
-import { createPool } from './db/pool.js'
-import { startPostgres, type TestPostgres } from './db/test-postgres.js'
+import { MIGRATIONS_DIR } from './db/migrations.js'
 import type { RelayLogger } from './outbox/relay.js'
 
 export type TestDatabase = {
-  postgres: TestPostgres
+  /** URL of shipment_db for shipment_owner (migrations). */
+  ownerUrl: string
+  /** URL of shipment_db for shipment_service (data only). */
+  serviceUrl: string
   /** The runtime pool, connected as shipment_service. */
   pool: pg.Pool
   /** Connected as shipment_owner, for setup that the service role cannot do. */
@@ -19,11 +22,14 @@ export type TestDatabase = {
 /** A fresh Postgres with all migrations run as shipment_owner (as `pnpm db:migrate` does). */
 export async function startTestDatabase(): Promise<TestDatabase> {
   const postgres = await startPostgres()
-  await runMigrations({ databaseUrl: postgres.ownerUrl, direction: 'up', log: () => {} })
-  const pool = createPool(postgres.serviceUrl)
-  const owner = new pg.Pool({ connectionString: postgres.ownerUrl })
+  const ownerUrl = postgres.url('shipment_owner', 'shipment_db')
+  const serviceUrl = postgres.url('shipment_service', 'shipment_db')
+  await runMigrations({ databaseUrl: ownerUrl, dir: MIGRATIONS_DIR, direction: 'up', log: () => {} })
+  const pool = createPool(serviceUrl)
+  const owner = new pg.Pool({ connectionString: ownerUrl })
   return {
-    postgres,
+    ownerUrl,
+    serviceUrl,
     pool,
     owner,
     async stop() {

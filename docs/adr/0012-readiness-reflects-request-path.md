@@ -1,6 +1,6 @@
 # ADR-0012: Readiness reflects the request path
 
-Status: Accepted (recorded 2026-11-20)
+Status: Accepted (recorded 2026-11-20, amended 2026-11-23)
 
 ## Context
 
@@ -34,6 +34,12 @@ updated together in the next step. SLA monitoring and Notification follow the sa
   but its data grows stale, and Shipment's outbox grows; this is visible only in `checks` and the
   logs.
 - Neutral: liveness (`GET /health/live`) is unchanged.
+
+## Amendment 2026-11-23
+
+Implemented: Shipment now reports NATS only for information and requires its database; Scan
+Ingestion requires NATS. The rule is implemented once, in the health routes of `@tt/http`
+([ADR-0013](0013-shared-infrastructure-packages.md)).
 
 ## Rejected alternatives
 

@@ -4,7 +4,7 @@ import { connectNats, publishEvent, verifyStream } from '@tt/messaging'
 import { pino } from 'pino'
 import { createIngestScan } from './application/ingest-scan.js'
 import { loadConfig } from './config.js'
-import { createReadinessCheck } from './health.js'
+import { createHealthChecks } from './health.js'
 import { buildApp } from './http/app.js'
 
 // Structured JSON logs. Config values are never logged.
@@ -25,7 +25,7 @@ try {
 
   const app = await buildApp({
     ingestScan: createIngestScan({ publish: (event, options) => publishEvent(js, event, options) }),
-    checkReadiness: createReadinessCheck({ nc }),
+    checks: createHealthChecks({ nc }),
     logger: log,
   })
 

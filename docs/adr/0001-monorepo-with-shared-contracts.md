@@ -1,6 +1,6 @@
 # ADR-0001: Monorepo with a shared contracts package
 
-Status: Accepted (recorded 2026-11-07)
+Status: Accepted (recorded 2026-11-07, amended 2026-11-23)
 
 ## Context
 
@@ -20,6 +20,12 @@ message from the broker can still be invalid at runtime.
 - Positive: one source of truth; a contract change breaks `typecheck` in every affected service.
 - Negative: all services depend on the contracts package, so a breaking change needs a new event
   version (see [ADR-0003](0003-self-describing-versioned-events.md)).
+
+## Amendment 2026-11-23
+
+Besides `@tt/contracts` there are now shared infrastructure packages: `@tt/messaging`
+([ADR-0006](0006-shared-messaging-package.md)), and `@tt/db` and `@tt/http`
+([ADR-0013](0013-shared-infrastructure-packages.md)). The rule for `@tt/contracts` is unchanged.
 
 ## Rejected alternatives
 

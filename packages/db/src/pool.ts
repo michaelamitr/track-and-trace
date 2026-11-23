@@ -5,7 +5,7 @@ export type Logger = {
 }
 
 /**
- * The connection pool of the running service (shipment_service role).
+ * The connection pool of the running service (its data-only runtime role, ADR-0008).
  * connectionTimeoutMillis makes a request fail (503) instead of waiting
  * forever when the database is down.
  */

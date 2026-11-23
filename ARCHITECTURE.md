@@ -82,6 +82,19 @@ its own database.
 | SLA monitoring | NATS + its own deadline scheduler  | deadlines, incidents, inbox, outbox | `sla.breached`            |
 | Notification   | NATS                               | recipients, notifications, inbox   | nothing                   |
 
+## Shared packages
+
+| Package | Purpose | Rule |
+|---|---|---|
+| [`@tt/contracts`](packages/contracts/src) | event subjects, Zod schemas and their types | no business logic ([ADR-0001](docs/adr/0001-monorepo-with-shared-contracts.md)) |
+| [`@tt/messaging`](packages/messaging/src) | stream and consumer configuration, publishing and consuming | services talk to NATS only through it and the official `@nats-io/*` clients ([ADR-0006](docs/adr/0006-shared-messaging-package.md)) |
+| [`@tt/db`](packages/db/src) | connection pool, transactions, "database unavailable" errors, running and verifying migrations | infrastructure only ([ADR-0013](docs/adr/0013-shared-infrastructure-packages.md)) |
+| [`@tt/http`](packages/http/src) | Fastify app, error body and error handler, health routes ([ADR-0012](docs/adr/0012-readiness-reflects-request-path.md)) | infrastructure only ([ADR-0013](docs/adr/0013-shared-infrastructure-packages.md)) |
+
+`@tt/db` and `@tt/http` contain no tables, no queries on data, no business logic and no domain
+types. Every service keeps its own database, migration files, roles, errors and config.
+`@tt/messaging/testing` and `@tt/db/testing` start NATS and Postgres in containers for tests.
+
 ## Durable consumers
 
 [packages/messaging/src/consumers.ts](packages/messaging/src/consumers.ts)
