@@ -1,8 +1,7 @@
 // Integration-test helpers only.
-import type { JetStreamClient, JetStreamManager } from '@nats-io/jetstream'
+import type { JetStreamClient } from '@nats-io/jetstream'
 import { createPool, runMigrations } from '@tt/db'
 import { startPostgres } from '@tt/db/testing'
-import { LOGISTICS_STREAM } from '@tt/messaging'
 import pg from 'pg'
 import { MIGRATIONS_DIR } from './db/migrations.js'
 import type { RelayLogger } from './outbox/relay.js'
@@ -52,25 +51,6 @@ export async function outboxRows(pool: pg.Pool): Promise<OutboxRow[]> {
     'SELECT event_id, subject, payload, published_at FROM outbox ORDER BY created_at, event_id',
   )
   return result.rows
-}
-
-export type StreamMessage = { seq: number; subject: string; msgId: string | undefined; event: Record<string, unknown> }
-
-/** Every message in LOGISTICS_EVENTS, oldest first. */
-export async function streamMessages(jsm: JetStreamManager): Promise<StreamMessage[]> {
-  const info = await jsm.streams.info(LOGISTICS_STREAM.name)
-  const messages: StreamMessage[] = []
-  for (let seq = info.state.first_seq; seq <= info.state.last_seq && info.state.messages > 0; seq++) {
-    const msg = await jsm.streams.getMessage(LOGISTICS_STREAM.name, { seq })
-    if (!msg) continue
-    messages.push({
-      seq,
-      subject: msg.subject,
-      msgId: msg.header?.get('Nats-Msg-Id') || undefined,
-      event: msg.json<Record<string, unknown>>(),
-    })
-  }
-  return messages
 }
 
 /** Counts publishes per msgID and can delay or block them; the rest is the real client. */

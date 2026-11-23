@@ -1,6 +1,6 @@
 import type { LogisticsEvent } from '@tt/contracts'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { consumeEvents, type ConsumeHandle, type EventHandler } from './consume.js'
+import { consumeEvents, type ConsumeHandle, type EventHandler, type MessageMetadata } from './consume.js'
 import { ensureConsumer, type ConsumerName } from './consumers.js'
 import { publishEvent } from './publish.js'
 import { ensureStream, LOGISTICS_STREAM } from './stream.js'
@@ -94,16 +94,23 @@ describe('consumeEvents', () => {
     await ensureConsumer(nats.jsm, 'tracking')
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const calls: string[] = []
-    await consume('tracking', async (event) => {
+    const metadata: MessageMetadata[] = []
+    await consume('tracking', async (event, meta) => {
       calls.push(event.eventId)
+      metadata.push(meta)
       if (calls.length === 1) throw new Error('database unavailable')
     })
 
     const event = parcelDelivered()
-    await publishEvent(nats.js, event)
+    const { seq } = await publishEvent(nats.js, event)
 
     const settled = await waitUntilSettled('tracking', () => calls.length >= 2)
     expect(calls).toEqual([event.eventId, event.eventId])
+    // The redelivery is the same message: same stream sequence, higher delivery count.
+    expect(metadata).toEqual([
+      { streamSequence: seq, subject: 'logistics.parcel.delivered.v1', deliveryCount: 1 },
+      { streamSequence: seq, subject: 'logistics.parcel.delivered.v1', deliveryCount: 2 },
+    ])
     expect(settled.ack_floor.stream_seq).toBe(1)
     expect(settled.delivered.consumer_seq).toBe(2)
   })

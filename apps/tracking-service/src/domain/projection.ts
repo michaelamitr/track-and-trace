@@ -25,7 +25,7 @@ export type TrackingProjection = {
 
 // R1: the earlier receivedAt instant wins. Only for the same instant does the code-unit
 // smaller string win, so the kept copy does not depend on input order.
-function wasReceivedEarlier(candidate: TrackingEvent, kept: TrackingEvent): boolean {
+export function wasReceivedEarlier(candidate: TrackingEvent, kept: TrackingEvent): boolean {
   const difference = Date.parse(candidate.receivedAt) - Date.parse(kept.receivedAt)
   return difference < 0 || (difference === 0 && candidate.receivedAt < kept.receivedAt)
 }

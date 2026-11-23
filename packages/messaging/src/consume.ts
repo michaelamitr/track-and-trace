@@ -3,12 +3,21 @@ import { LogisticsEventSchema, type LogisticsEvent } from '@tt/contracts'
 import type { ConsumerName } from './consumers.js'
 import { LOGISTICS_STREAM } from './stream.js'
 
+/** Where a message comes from; not part of the event itself. */
+export type MessageMetadata = {
+  /** Position in the stream: the same for every redelivery of a message, unique per published copy. */
+  streamSequence: number
+  subject: string
+  /** 1 for the first delivery to this consumer, higher for redeliveries. */
+  deliveryCount: number
+}
+
 /**
  * The handler must commit its database transaction before it resolves,
  * because the message is acked right after it resolves. Throwing leads to a
  * nak and a redelivery, so the handler must be idempotent by eventId.
  */
-export type EventHandler = (event: LogisticsEvent) => Promise<void>
+export type EventHandler = (event: LogisticsEvent, metadata: MessageMetadata) => Promise<void>
 
 export type ConsumeHandle = { stop(): Promise<void> }
 
@@ -36,7 +45,11 @@ export async function handleMessage(msg: JsMsg, handler: EventHandler): Promise<
   }
 
   try {
-    await handler(event)
+    await handler(event, {
+      streamSequence: msg.info.streamSequence,
+      subject: msg.subject,
+      deliveryCount: msg.info.deliveryCount,
+    })
   } catch (err) {
     console.error(
       `[messaging] handler failed for ${event.eventId} (stream seq ${msg.info.streamSequence}), nak`,

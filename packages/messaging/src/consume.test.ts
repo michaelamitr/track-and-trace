@@ -6,7 +6,7 @@ import { parcelDelivered } from './test-fixtures.js'
 function fakeMsg(body: string) {
   const msg = {
     subject: 'logistics.parcel.delivered.v1',
-    info: { streamSequence: 42 },
+    info: { streamSequence: 42, deliveryCount: 3 },
     string: () => body,
     ack: vi.fn(),
     nak: vi.fn(),
@@ -28,6 +28,19 @@ describe('handleMessage', () => {
 
     expect(order).toEqual(['handler', 'ack'])
     expect(msg.nak).not.toHaveBeenCalled()
+  })
+
+  it('passes the event and the message metadata to the handler', async () => {
+    const event = parcelDelivered()
+    const handler = vi.fn().mockResolvedValue(undefined)
+
+    await handleMessage(fakeMsg(JSON.stringify(event)), handler)
+
+    expect(handler).toHaveBeenCalledExactlyOnceWith(event, {
+      streamSequence: 42,
+      subject: 'logistics.parcel.delivered.v1',
+      deliveryCount: 3,
+    })
   })
 
   it('naks when the handler throws', async () => {

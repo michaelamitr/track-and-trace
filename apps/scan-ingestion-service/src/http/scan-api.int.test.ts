@@ -2,12 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { jetstream } from '@nats-io/jetstream'
 import type { NatsConnection } from '@nats-io/transport-node'
 import { connectNats, ensureStream, LOGISTICS_STREAM, publishEvent } from '@tt/messaging'
-import { startNats, type TestNats } from '@tt/messaging/testing'
+import { startNats, streamMessages, type TestNats } from '@tt/messaging/testing'
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createIngestScan } from '../application/ingest-scan.js'
 import { createHealthChecks } from '../health.js'
-import { streamMessages } from '../test-support.js'
 import { buildApp } from './app.js'
 
 const NOW = new Date('2026-10-28T09:31:12Z')

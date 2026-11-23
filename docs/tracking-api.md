@@ -1,8 +1,9 @@
 # Tracking API
 
 The HTTP contract of the Tracking Service
-([`apps/tracking-service`](../apps/tracking-service/src)). Status: designed, not implemented yet;
-only the projection logic `project()` exists. How the read model is stored is decided in
+([`apps/tracking-service`](../apps/tracking-service/src)). Status: event processing and the
+health endpoints are implemented; the three read endpoints (`GET /tracking/...`) and the parts
+marked (planned) are the next step. How the read model is stored is decided in
 [ADR-0011](adr/0011-tracking-read-model.md), readiness in
 [ADR-0012](adr/0012-readiness-reflects-request-path.md). The status rules are in
 [tracking-projection.md](tracking-projection.md), the events in [EVENTS.md](../EVENTS.md).
@@ -27,7 +28,7 @@ before the registration are stored and evaluated when it arrives
 ([AC-11](acceptance-scenarios.md)); until then every endpoint answers `404` for that shipment,
 even though scans for it exist.
 
-## GET /tracking/:shipmentId
+## GET /tracking/:shipmentId (planned)
 
 The current state of a shipment.
 
@@ -70,7 +71,7 @@ find out why a shipment stopped updating:
 | old | old | No new events reached Tracking. Either the parcel is not being scanned, or Tracking is not processing (check `GET /health/ready`, its `nats` check and the consumer's pending messages). If other shipments have a recent `updatedAt`, Tracking is working. |
 | recent | much later than `lastEventAt` | The scan reached Tracking late (scanner offline, retries, or Tracking was catching up). Compare `occurredAt` and `receivedAt` in the history. |
 
-## GET /tracking/:shipmentId/history
+## GET /tracking/:shipmentId/history (planned)
 
 The ordered history of a shipment, in R2 order (`occurredAt`, then lifecycle phase, then
 `eventId`), never in arrival order. Every unique event appears once (R1), including anomalies.
@@ -115,7 +116,7 @@ Each entry is a `HistoryEntry` of `project()`:
 | `facilityId` | string \| `null` | Facility of the scan. `null` for `shipment.registered`. |
 | `isAnomaly` | boolean | `true` if the event is ordered after the first `DELIVERED` (R5). |
 
-## GET /tracking/:shipmentId/anomalies
+## GET /tracking/:shipmentId/anomalies (planned)
 
 What did not fit into the normal history of a shipment.
 
@@ -165,9 +166,9 @@ How conflicts are listed:
 Both lists are empty when there is nothing to report. Invalid messages (quarantine reason
 `INVALID`, lesson 3.4) are not part of this endpoint.
 
-## Status codes
+## Status codes (planned)
 
-The same for all three endpoints.
+The same for all three read endpoints.
 
 | Status | `error.code` | Meaning |
 |---|---|---|
@@ -195,10 +196,30 @@ information.
 | Variable | Default | |
 |---|---|---|
 | `TRACKING_DATABASE_URL` | (required) | Runtime role `tracking_service` (data only). |
-| `TRACKING_MIGRATIONS_DATABASE_URL` | | Used only by `pnpm db:migrate`, role `tracking_owner` ([ADR-0008](adr/0008-database-access-and-migrations.md)). |
+| `TRACKING_MIGRATIONS_DATABASE_URL` | (required for migrations) | Used only by `pnpm db:migrate`, role `tracking_owner` ([ADR-0008](adr/0008-database-access-and-migrations.md)). |
+| `TRACKING_OWNER_PASSWORD`, `TRACKING_SERVICE_PASSWORD` | (required by compose) | Passwords of the two roles; they must match the URLs. Read only when [`02-tracking.sh`](../infra/postgres/init/02-tracking.sh) creates the roles; its header says how to run it on an existing volume. |
 | `TRACKING_PORT` | `3003` | Service-specific, because every service loads the same `.env`. |
 | `HOST` | `127.0.0.1` | Shared with the other services. |
 | `NATS_URL` | `nats://localhost:4222` | Shared with the other services. |
+
+Local start: `pnpm db:migrate` and `pnpm nats:setup`, then `pnpm dev:tracking`.
+
+At startup the service fails fast if the configuration is invalid, a migration is pending
+("Run pnpm db:migrate first."), NATS is unreachable or the stream or the `tracking` consumer is
+missing ("Run `pnpm nats:setup` first."). On `SIGINT` or `SIGTERM` it first stops consuming and
+lets the message in progress finish, then closes HTTP, NATS and the database connections.
+
+## Log
+
+One structured line per processed message: `service`, `eventId`, `eventType`, `shipmentId`,
+`correlationId`, `streamSequence` and `result`.
+
+| `result` | Meaning |
+|---|---|
+| `processed` | A new event of a known shipment; the read model was updated. |
+| `waiting_for_registration` | A new event of a shipment that is not known yet; it was only stored. |
+| `duplicate` | An equal copy of a stored event, or a redelivery. |
+| `conflict` | A different copy of a stored event; the copy with the higher stream sequence was quarantined (logged as a warning). |
 
 ## Simplifications (MVP)
 

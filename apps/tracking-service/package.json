@@ -4,10 +4,28 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "dev": "tsx watch --env-file=../../.env src/main.ts",
+    "start": "tsx --env-file=../../.env src/main.ts",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "tsx --env-file=../../.env src/db/migrate-cli.ts up",
+    "db:migrate:down": "tsx --env-file=../../.env src/db/migrate-cli.ts down"
   },
   "dependencies": {
-    "@tt/contracts": "workspace:*"
+    "@nats-io/jetstream": "^3.4.0",
+    "@nats-io/transport-node": "^3.4.0",
+    "@tt/contracts": "workspace:*",
+    "@tt/db": "workspace:*",
+    "@tt/http": "workspace:*",
+    "@tt/messaging": "workspace:*",
+    "fastify": "^5.12.8",
+    "pg": "^8.23.1",
+    "pino": "^10.4.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "zod": "^4.6.7"
   }
 }

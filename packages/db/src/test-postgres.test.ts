@@ -23,7 +23,7 @@ describe('TEST_PASSWORDS', () => {
       [...script.matchAll(/\$\{([A-Z_]+_PASSWORD):\?/g)].map((match) => match[1]!),
     )
 
-    expect(required).toContain('SHIPMENT_OWNER_PASSWORD')
+    expect(required).toEqual(expect.arrayContaining(['SHIPMENT_OWNER_PASSWORD', 'TRACKING_OWNER_PASSWORD']))
     expect(Object.keys(TEST_PASSWORDS).map(passwordVariable)).toEqual(expect.arrayContaining(required))
   })
 })

@@ -14,6 +14,10 @@ export type ShipmentStatus = (typeof SHIPMENT_STATUSES)[number]
 // Tracking consumes every event except sla.breached.
 export type TrackingEvent = Exclude<LogisticsEvent, { eventType: 'sla.breached' }>
 
+export function isTrackingEvent(event: LogisticsEvent): event is TrackingEvent {
+  return event.eventType !== 'sla.breached'
+}
+
 export const STATUS_BY_EVENT_TYPE: Record<TrackingEvent['eventType'], ShipmentStatus> = {
   'shipment.registered': 'REGISTERED',
   'parcel.accepted': 'ACCEPTED',

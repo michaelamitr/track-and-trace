@@ -18,6 +18,8 @@ export const TEST_PASSWORDS = {
   postgres: 'testpostgres',
   shipment_owner: 'testshipmentowner',
   shipment_service: 'testshipmentservice',
+  tracking_owner: 'testtrackingowner',
+  tracking_service: 'testtrackingservice',
 } as const
 
 export type TestRole = keyof typeof TEST_PASSWORDS

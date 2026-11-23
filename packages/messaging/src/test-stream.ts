@@ -1,6 +1,7 @@
-// Integration-test helpers only.
+// Integration-test helper only; not exported from index.ts. Other workspace
+// packages import it through the "@tt/messaging/testing" subpath.
 import type { JetStreamManager } from '@nats-io/jetstream'
-import { LOGISTICS_STREAM } from '@tt/messaging'
+import { LOGISTICS_STREAM } from './stream.js'
 
 export type StreamMessage = { seq: number; subject: string; msgId: string | undefined; event: Record<string, unknown> }
 

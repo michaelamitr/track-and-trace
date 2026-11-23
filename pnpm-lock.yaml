@@ -252,9 +252,43 @@ importers:
 
   apps/tracking-service:
     dependencies:
+      '@nats-io/jetstream':
+        specifier: ^3.4.0
+        version: 3.4.0
+      '@nats-io/transport-node':
+        specifier: ^3.4.0
+        version: 3.4.0
       '@tt/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@tt/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@tt/http':
+        specifier: workspace:*
+        version: link:../../packages/http
+      '@tt/messaging':
+        specifier: workspace:*
+        version: link:../../packages/messaging
+      fastify:
+        specifier: ^5.12.8
+        version: 5.12.8
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
+      pino:
+        specifier: ^10.4.0
+        version: 10.4.0
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
 
   packages/contracts:
     dependencies:
@@ -327,22 +361,6 @@ importers:
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
-
-  tools/nats-demo:
-    dependencies:
-      '@nats-io/jetstream':
-        specifier: ^3.4.0
-        version: 3.4.0
-      '@tt/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@tt/messaging':
-        specifier: workspace:*
-        version: link:../../packages/messaging
-    devDependencies:
-      tsx:
-        specifier: ^4.20.0
-        version: 4.23.15
 
 packages:
 

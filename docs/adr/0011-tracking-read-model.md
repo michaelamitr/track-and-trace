@@ -1,6 +1,6 @@
 # ADR-0011: Tracking read model
 
-Status: Accepted (recorded 2026-11-20)
+Status: Accepted (recorded 2026-11-20, amended 2026-11-23)
 
 ## Context
 
@@ -110,6 +110,25 @@ This implements ADR-0005 now instead of in lesson 3.1 (amends ADR-0005).
   processed it.
 - Negative: events of shipments that are never registered stay in `tracking_events` and are not
   visible through the API.
+
+## Amendment 2026-11-23
+
+The kept copy of an event is the one with the **lower stream sequence**, not the one processed
+first. The two differ when the first copy fails and is redelivered after a different copy has been
+stored; a replay would then keep the other copy and give a different projection.
+
+- `tracking_events` also stores `stream_sequence` and `subject` of the kept copy. Equal copies
+  keep the earliest received content (R1) and the lower stream sequence.
+- If a conflicting copy has a lower stream sequence than the stored one, the stored copy is moved
+  to `quarantined_events` and the new copy is stored instead, in the same transaction. Copies
+  quarantined earlier are compared with the new kept copy: one that is equal becomes a duplicate,
+  for the others `details` and `shipment_id` are updated. Every affected shipment is projected
+  again; one that loses its registration this way is no longer known.
+- Limit: equal copies that were already merged (R1) are moved as one row, so the quarantine can
+  list fewer copies than a replay. The kept copy and the projection are always the same.
+- The stream and `tracking_db` must always be reset together: stream sequences restart with a new
+  stream, so old sequences in the database would decide conflicts wrongly and hide new quarantine
+  rows.
 
 ## Rejected alternatives
 

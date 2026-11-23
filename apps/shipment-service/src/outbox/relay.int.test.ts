@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { JetStreamClient } from '@nats-io/jetstream'
 import { ensureStream, LOGISTICS_STREAM } from '@tt/messaging'
-import { startNats, type TestNats } from '@tt/messaging/testing'
+import { startNats, streamMessages, type TestNats } from '@tt/messaging/testing'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { insertOutboxEvent } from '../db/outbox.js'
 import { buildShipmentRegisteredEvent } from '../domain/shipment.js'
@@ -10,7 +10,6 @@ import {
   outboxRows,
   quietLog,
   startTestDatabase,
-  streamMessages,
   type TestDatabase,
 } from '../test-support.js'
 import { publishOutboxBatch, startOutboxRelay, type OutboxRelay } from './relay.js'
