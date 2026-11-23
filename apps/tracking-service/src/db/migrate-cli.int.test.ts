@@ -33,7 +33,7 @@ describe('migrate-cli', () => {
 
     const up = await migrateCli('up', env)
     expect(up.stdout).toContain(
-      'Applied: 1795447776000_create-tracking-events, 1795447836000_create-read-model, 1795447896000_create-quarantined-events',
+      'Applied: 1795447776000_create-received-messages, 1795447836000_create-read-model, 1795447896000_create-quarantined-events',
     )
 
     const down = await migrateCli('down', env)

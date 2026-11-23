@@ -9,7 +9,7 @@ import { startNats, type TestNats } from '@tt/messaging/testing'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MIGRATIONS_DIR } from './db/migrations.js'
 import { registered, SHIPMENT_ID } from './test-events.js'
-import { clearTables, readModel, startTestDatabase, storedEvents, type TestDatabase } from './test-support.js'
+import { clearTables, readModel, startTestDatabase, receivedMessages, type TestDatabase } from './test-support.js'
 
 type RunningService = {
   child: ChildProcess
@@ -184,7 +184,7 @@ describe('running service', () => {
     const blocker = await db.owner.connect()
     try {
       await blocker.query('BEGIN')
-      await blocker.query('LOCK TABLE tracking_events IN ACCESS EXCLUSIVE MODE')
+      await blocker.query('LOCK TABLE received_messages IN ACCESS EXCLUSIVE MODE')
       await publishEvent(nats.js, registered('2026-10-28T08:00:00Z'))
       await vi.waitFor(async () => expect((await consumerInfo()).num_ack_pending).toBe(1), { timeout: 10_000 })
 
@@ -199,7 +199,7 @@ describe('running service', () => {
     }
 
     expect(await service.exited).toEqual({ code: 0, signal: null })
-    expect(await storedEvents(db.pool)).toHaveLength(1)
+    expect(await receivedMessages(db.pool)).toHaveLength(1)
     const info = await consumerInfo()
     expect(info.num_ack_pending).toBe(0)
     expect(info.ack_floor.stream_seq).toBe(1)

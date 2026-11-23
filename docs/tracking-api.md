@@ -4,7 +4,7 @@ The HTTP contract of the Tracking Service
 ([`apps/tracking-service`](../apps/tracking-service/src)). Status: event processing and the
 health endpoints are implemented; the three read endpoints (`GET /tracking/...`) and the parts
 marked (planned) are the next step. How the read model is stored is decided in
-[ADR-0011](adr/0011-tracking-read-model.md), readiness in
+[ADR-0014](adr/0014-tracking-stores-every-message.md), readiness in
 [ADR-0012](adr/0012-readiness-reflects-request-path.md). The status rules are in
 [tracking-projection.md](tracking-projection.md), the events in [EVENTS.md](../EVENTS.md).
 
@@ -139,7 +139,8 @@ Response body for `200`:
   "conflicts": [
     {
       "eventId": "4d36957b-6c2b-47e0-b784-13a9b00c0b67",
-      "detectedAt": "2026-10-28T10:02:41.918Z",
+      "streamSequence": 1042,
+      "receivedAt": "2026-10-28T10:02:41.918Z",
       "differingFields": ["data.scannerId"]
     }
   ]
@@ -149,10 +150,11 @@ Response body for `200`:
 | Field | Type | Meaning |
 |---|---|---|
 | `afterDelivery` | `HistoryEntry[]` | History entries with `isAnomaly` `true` (R5), in R2 order. Same shape as in the history. |
-| `conflicts` | array | Copies quarantined because they share an `eventId` with a stored event but differ in something other than `receivedAt` ([ADR-0005](adr/0005-quarantine-conflicting-events.md), [AC-12](acceptance-scenarios.md)). They are not part of the history or the status. |
+| `conflicts` | array | From `tracking_conflicts`: copies that share an `eventId` with the kept copy of an event, the one with the lowest stream sequence, but differ in something other than `receivedAt` ([ADR-0005](adr/0005-quarantine-conflicting-events.md), [AC-12](acceptance-scenarios.md)). They are not part of the history or the status. |
 | `conflicts[].eventId` | UUID | The shared `eventId`. |
-| `conflicts[].detectedAt` | ISO 8601, UTC | When Tracking quarantined the copy. |
-| `conflicts[].differingFields` | string[] | Fields that differ from the stored copy: envelope fields by name (`occurredAt`), payload fields as `data.<field>` (`data.scannerId`). |
+| `conflicts[].streamSequence` | integer | Position of the conflicting copy in the stream. |
+| `conflicts[].receivedAt` | ISO 8601, UTC | When the system accepted the conflicting copy (its own `receivedAt`). |
+| `conflicts[].differingFields` | string[] | Fields that differ from the kept copy: envelope fields by name (`occurredAt`), payload fields as `data.<field>` (`data.scannerId`). |
 
 How conflicts are listed:
 
@@ -161,7 +163,9 @@ How conflicts are listed:
 - A redelivery of the same message is listed once; each new conflicting copy sent by a producer
   is listed separately.
 - A conflicting copy with a different `shipmentId` is listed under both shipments: the one of
-  the stored copy and its own.
+  the kept copy and its own.
+- Which copy is kept does not depend on the processing order: if a copy with a lower stream
+  sequence is processed later, it becomes the kept one and the list changes accordingly.
 
 Both lists are empty when there is nothing to report. Invalid messages (quarantine reason
 `INVALID`, lesson 3.4) are not part of this endpoint.
@@ -219,11 +223,11 @@ One structured line per processed message: `service`, `eventId`, `eventType`, `s
 | `processed` | A new event of a known shipment; the read model was updated. |
 | `waiting_for_registration` | A new event of a shipment that is not known yet; it was only stored. |
 | `duplicate` | An equal copy of a stored event, or a redelivery. |
-| `conflict` | A different copy of a stored event; the copy with the higher stream sequence was quarantined (logged as a warning). |
+| `conflict` | A different copy of a stored event; of the two, the copy with the higher stream sequence does not count (logged as a warning). |
 
 ## Simplifications (MVP)
 
 - Lookup by `shipmentId` only; no lookup by `trackingNumber`.
 - No authentication: anyone who knows a `shipmentId` can read its tracking.
 - One instance: messages are processed one at a time by a single instance
-  ([ADR-0011](adr/0011-tracking-read-model.md)).
+  ([ADR-0014](adr/0014-tracking-stores-every-message.md)).

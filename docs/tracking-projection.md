@@ -8,11 +8,13 @@ rule they check. The events themselves are described in [`EVENTS.md`](../EVENTS.
 Events are delivered at least once and can arrive out of order, so the result depends only on which
 events exist, never on how many times or in what order they were delivered.
 
-The service stores every event once in `tracking_events` and, for each message, recomputes the
-shipment with `project()` from all its stored events. Once the shipment's `shipment.registered`
-is stored, the result is saved in `shipment_tracking` (current state) and `tracking_history`
-(ordered history), which the [HTTP API](tracking-api.md) reads. All tables are derived from the
-stream and can be rebuilt by a replay. See [ADR-0011](adr/0011-tracking-read-model.md).
+The service stores every message in `received_messages` and, for each message, recomputes the
+shipment from all its stored copies: `resolveCopies()` decides which copy of each event counts and
+`project()` gets the kept events. Once the shipment's `shipment.registered` is stored, the result is
+saved in `shipment_tracking` (current state), `tracking_history` (ordered history) and
+`tracking_conflicts` (conflicting copies), which the [HTTP API](tracking-api.md) reads. All tables
+are derived from the stream and can be rebuilt by a replay. See
+[ADR-0014](adr/0014-tracking-stores-every-message.md).
 
 ## Shipment statuses
 
@@ -61,7 +63,9 @@ and as strings `09:30:00.500Z` sorts before `09:30:00Z`.
 
 Copies with the same `eventId` may differ only in `receivedAt`. Any other difference, in the
 envelope or the payload (including `scannerId`), is a conflict ([AC-12](acceptance-scenarios.md)).
-A conflict is quarantined before the projection and is out of scope for `project()`.
+Conflicts are resolved before the projection by `resolveCopies()` in
+[`resolve-copies.ts`](../apps/tracking-service/src/domain/resolve-copies.ts) (the copy with the
+lowest stream sequence is kept) and are out of scope for `project()`.
 
 ## Output of `project()`
 

@@ -28,7 +28,7 @@ export function createEventHandler(deps: { processEvent: ProcessEvent; log: Hand
       streamSequence: metadata.streamSequence,
       result,
     }
-    if (result === 'conflict') deps.log.warn(fields, 'conflicting copies, one quarantined')
+    if (result === 'conflict') deps.log.warn(fields, 'conflicting copies of an event')
     else deps.log.info(fields, 'event handled')
   }
 }

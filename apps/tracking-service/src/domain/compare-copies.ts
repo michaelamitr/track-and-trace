@@ -26,7 +26,7 @@ function sameValue(name: string, a: unknown, b: unknown): boolean {
 
 /**
  * Compares two copies of an event (same eventId) and returns the names of the
- * fields that differ, sorted; empty means the copies are equal (ADR-0011).
+ * fields that differ, sorted; empty means the copies are equal (ADR-0014).
  * receivedAt is ignored, times are compared as instants, the rest exactly.
  */
 export function differingFields(a: TrackingEvent, b: TrackingEvent): string[] {

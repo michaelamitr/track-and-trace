@@ -15,14 +15,16 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { project } from '../domain/projection.js'
 import type { TrackingEvent } from '../domain/shipment-status.js'
 import { parcel, registered, SHIPMENT_ID } from '../test-events.js'
+import { permutations } from '../test-permutations.js'
 import {
   clearTables,
   expectedReadModel,
   memoryLog,
   quarantinedEvents,
   readModel,
+  receivedMessages,
   startTestDatabase,
-  storedEvents,
+  trackingConflicts,
   type TestDatabase,
 } from '../test-support.js'
 import { createEventHandler } from './handle-event.js'
@@ -134,12 +136,12 @@ describe('normal processing', () => {
     expect(results()).toEqual(['processed', 'processed', 'processed'])
   })
 
-  it('keeps the whole event as payload and its fields in the columns', async () => {
+  it('stores the message with the whole event as payload and its fields in the columns', async () => {
     const { atHub } = journey()
 
     await processAll(atHub)
 
-    expect(await storedEvents(db.pool)).toEqual([
+    expect(await receivedMessages(db.pool)).toEqual([
       {
         event_id: atHub.eventId,
         shipment_id: SHIPMENT_ID,
@@ -213,7 +215,7 @@ describe('AC-03: out of order', () => {
 })
 
 describe('AC-02: duplicates', () => {
-  it('keeps one row with the earlier copy as a whole when the later-received copy is published first', async () => {
+  it('counts once, with the earlier receivedAt, when the later-received copy is published first', async () => {
     const { registration, atHub } = journey()
     // As strings the later receivedAt sorts first, so it must be compared as a timestamp.
     const later = { ...atHub, receivedAt: '2026-10-28T09:31:12.500Z' }
@@ -223,32 +225,30 @@ describe('AC-02: duplicates', () => {
     await processAll(registration, later, earlier)
 
     expect(results()).toEqual(['processed', 'processed', 'duplicate'])
-    const rows = (await storedEvents(db.pool)).filter((row) => row.event_id === atHub.eventId)
-    expect(rows).toHaveLength(1)
-    expect(rows[0].payload).toEqual(earlier)
-    expect(rows[0].received_at).toEqual(new Date(earlier.receivedAt))
-    // The earlier received copy, but the lower stream sequence (registration is 1, later is 2).
-    expect(rows[0].stream_sequence).toBe('2')
-    expect(await readModel(db.pool, SHIPMENT_ID)).toEqual(
-      expectedReadModel(TRACKING_NUMBER, project([registration, earlier])),
-    )
-    expect(await quarantinedEvents(db.pool)).toEqual([])
+    const model = await readModel(db.pool, SHIPMENT_ID)
+    expect(model).toEqual(expectedReadModel(TRACKING_NUMBER, project([registration, earlier])))
+    expect(model?.history.map((row) => row.received_at)).toEqual([
+      new Date(registration.receivedAt),
+      new Date(earlier.receivedAt),
+    ])
+    // Both messages are stored as they came.
+    expect((await receivedMessages(db.pool)).map((row) => row.payload)).toEqual([registration, later, earlier])
+    expect(await trackingConflicts(db.pool)).toEqual([])
   })
 
-  it('keeps the stored copy when the later-received copy is published second', async () => {
+  it('keeps the earlier receivedAt when the later-received copy is published second', async () => {
     const { registration, atHub } = journey()
     const later = { ...atHub, receivedAt: '2026-10-28T10:00:00Z' }
     await processAll(registration, atHub)
-    const before = await updatedAt()
+    const before = await readModel(db.pool, SHIPMENT_ID)
+    const updatedBefore = await updatedAt()
 
     await processAll(later)
 
     expect(results()).toEqual(['processed', 'processed', 'duplicate'])
-    const [row] = (await storedEvents(db.pool)).filter((stored) => stored.event_id === atHub.eventId)
-    expect(row.payload).toEqual(atHub)
-    expect(row.received_at).toEqual(new Date(atHub.receivedAt))
+    expect(await readModel(db.pool, SHIPMENT_ID)).toEqual(before)
     // Processing time: every processed message of the shipment counts (docs/tracking-api.md).
-    expect((await updatedAt()).getTime()).toBeGreaterThan(before.getTime())
+    expect((await updatedAt()).getTime()).toBeGreaterThan(updatedBefore.getTime())
   })
 })
 
@@ -278,11 +278,16 @@ describe('failure between write and ACK', () => {
       [1, 1], [1, 2], [2, 1], [2, 2], [3, 1], [3, 2],
     ])
     expect(results()).toEqual(['processed', 'duplicate', 'processed', 'duplicate', 'processed', 'duplicate'])
-    expect(await storedEvents(db.pool)).toHaveLength(3)
+    // The second delivery added no row.
+    expect((await receivedMessages(db.pool)).map((row) => [row.stream_sequence, row.event_id])).toEqual([
+      ['1', registration.eventId],
+      ['2', accepted.eventId],
+      ['3', delivered.eventId],
+    ])
     expect(await readModel(db.pool, SHIPMENT_ID)).toEqual(
       expectedReadModel(TRACKING_NUMBER, project([registration, accepted, delivered])),
     )
-    expect(await quarantinedEvents(db.pool)).toEqual([])
+    expect(await trackingConflicts(db.pool)).toEqual([])
   })
 
   /** A pool whose first transaction fails at COMMIT: nothing is committed. */
@@ -319,7 +324,7 @@ describe('failure between write and ACK', () => {
     await startConsuming(trackingHandler(failingFirstCommit(db.pool)))
 
     await publish(registration)
-    await vi.waitFor(async () => expect(await storedEvents(db.pool)).toHaveLength(1), { timeout: 10_000 })
+    await vi.waitFor(async () => expect(await receivedMessages(db.pool)).toHaveLength(1), { timeout: 10_000 })
     await waitUntilAcked()
 
     // One result only: the first delivery was rolled back as a whole.
@@ -331,7 +336,7 @@ describe('failure between write and ACK', () => {
     )
   })
 
-  it('writes everything or nothing: no event is stored if the read model cannot be written', async () => {
+  it('writes everything or nothing: no message is stored if the read model cannot be written', async () => {
     const { registration, accepted } = journey()
     await processAll(registration)
     const before = await readModel(db.pool, SHIPMENT_ID)
@@ -345,41 +350,38 @@ describe('failure between write and ACK', () => {
       await db.owner.query('GRANT INSERT ON tracking_history TO tracking_service')
     }
 
-    expect(await storedEvents(db.pool)).toHaveLength(1)
+    expect(await receivedMessages(db.pool)).toHaveLength(1)
     expect(await readModel(db.pool, SHIPMENT_ID)).toEqual(before)
   })
 })
 
 describe('AC-12: conflicts', () => {
-  it('quarantines a copy with a different facilityId and does not change the projection', async () => {
+  it('lists a copy with a different facilityId and does not change the projection', async () => {
     const { registration, atHub } = journey()
-    const conflicting = { ...atHub, data: { ...atHub.data, facilityId: 'DEPOT-OSTRAVA' } }
+    const conflicting = { ...atHub, receivedAt: '2026-10-28T10:00:00Z', data: { ...atHub.data, facilityId: 'DEPOT-OSTRAVA' } }
     await processAll(registration, atHub)
     const before = await readModel(db.pool, SHIPMENT_ID)
-    const eventsBefore = await storedEvents(db.pool)
 
     await processAll(conflicting)
 
     expect(results()).toEqual(['processed', 'processed', 'conflict'])
-    expect(await quarantinedEvents(db.pool)).toEqual([
+    expect(await trackingConflicts(db.pool)).toEqual([
       {
-        id: expect.any(String),
-        reason: 'CONFLICT',
-        event_id: atHub.eventId,
         shipment_id: SHIPMENT_ID,
-        subject: 'logistics.parcel.arrived_at_hub.v1',
+        event_id: atHub.eventId,
         // bigint is read as a string.
         stream_sequence: '3',
-        payload: conflicting,
-        details: ['data.facilityId'],
-        detected_at: expect.any(Date),
+        received_at: new Date(conflicting.receivedAt),
+        differing_fields: ['data.facilityId'],
       },
     ])
     expect(await readModel(db.pool, SHIPMENT_ID)).toEqual(before)
-    expect(await storedEvents(db.pool)).toEqual(eventsBefore)
+    // The conflicting copy is stored like any other message; the quarantine is for invalid ones.
+    expect((await receivedMessages(db.pool)).at(-1)).toMatchObject({ stream_sequence: '3', payload: conflicting })
+    expect(await quarantinedEvents(db.pool)).toEqual([])
   })
 
-  it('does not let a conflicting copy with an earlier receivedAt replace the kept one', async () => {
+  it('does not take anything from a conflicting copy with an earlier receivedAt', async () => {
     const { registration, atHub } = journey()
     const conflicting = {
       ...atHub,
@@ -394,7 +396,7 @@ describe('AC-12: conflicts', () => {
     )
   })
 
-  it('keeps one row when the same conflicting message is delivered again, and acks it', async () => {
+  it('adds no row when the same conflicting message is delivered again, and acks it', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const { registration, atHub } = journey()
     const conflicting = { ...atHub, data: { ...atHub.data, facilityId: 'DEPOT-OSTRAVA' } }
@@ -408,19 +410,20 @@ describe('AC-12: conflicts', () => {
 
     expect(results()).toEqual(['processed', 'processed', 'conflict', 'conflict'])
     expect(logged.lines.map((line) => line.streamSequence)).toEqual([1, 2, 3, 3])
-    expect(await quarantinedEvents(db.pool)).toHaveLength(1)
+    expect(await receivedMessages(db.pool)).toHaveLength(3)
+    expect(await trackingConflicts(db.pool)).toHaveLength(1)
   })
 
-  it('quarantines every conflicting copy sent by a producer', async () => {
+  it('lists every conflicting copy sent by a producer', async () => {
     const { registration, atHub } = journey()
     const conflicting = { ...atHub, data: { ...atHub.data, facilityId: 'DEPOT-OSTRAVA' } }
 
     await processAll(registration, atHub, conflicting, conflicting)
 
-    expect((await quarantinedEvents(db.pool)).map((row) => row.stream_sequence)).toEqual(['3', '4'])
+    expect((await trackingConflicts(db.pool)).map((row) => row.stream_sequence)).toEqual(['3', '4'])
   })
 
-  it("stores a copy with a different shipmentId under the kept copy's shipment and changes neither shipment", async () => {
+  it('lists a copy with a different shipmentId under both shipments and changes neither projection', async () => {
     const { registration, atHub } = journey()
     const other = registered('2026-10-28T08:05:00Z', { shipmentId: OTHER_SHIPMENT_ID })
     await processAll(registration, other, atHub)
@@ -429,25 +432,44 @@ describe('AC-12: conflicts', () => {
 
     await processAll(conflicting)
 
-    const rows = await quarantinedEvents(db.pool)
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({
-      shipment_id: SHIPMENT_ID,
-      payload: conflicting,
-      details: ['correlationId', 'shipmentId'],
-    })
+    const conflict = {
+      event_id: atHub.eventId,
+      stream_sequence: '4',
+      received_at: new Date(conflicting.receivedAt),
+      differing_fields: ['correlationId', 'shipmentId'],
+    }
+    expect(await trackingConflicts(db.pool)).toEqual([
+      { shipment_id: SHIPMENT_ID, ...conflict },
+      { shipment_id: OTHER_SHIPMENT_ID, ...conflict },
+    ])
     expect([await readModel(db.pool, SHIPMENT_ID), await readModel(db.pool, OTHER_SHIPMENT_ID)]).toEqual(before)
-    // The log line identifies the message, so it has the shipmentId of the copy.
+    // The kept copy has the shipmentId of its own shipment; the log line that of the new message.
+    expect((await receivedMessages(db.pool)).filter((row) => row.event_id === atHub.eventId)).toMatchObject([
+      { stream_sequence: '3', shipment_id: SHIPMENT_ID },
+      { stream_sequence: '4', shipment_id: OTHER_SHIPMENT_ID },
+    ])
     expect(logged.lines.at(-1)).toMatchObject({ shipmentId: OTHER_SHIPMENT_ID, result: 'conflict' })
+  })
+
+  it('lists a conflict between shipments under the other shipment once that one is registered', async () => {
+    const { registration, atHub } = journey()
+    const conflicting = { ...atHub, shipmentId: OTHER_SHIPMENT_ID, correlationId: OTHER_SHIPMENT_ID }
+    await processAll(registration, atHub, conflicting)
+    expect((await trackingConflicts(db.pool)).map((row) => row.shipment_id)).toEqual([SHIPMENT_ID])
+
+    await processAll(registered('2026-10-28T08:05:00Z', { shipmentId: OTHER_SHIPMENT_ID }))
+
+    expect((await trackingConflicts(db.pool)).map((row) => row.shipment_id)).toEqual([SHIPMENT_ID, OTHER_SHIPMENT_ID])
+    expect((await readModel(db.pool, OTHER_SHIPMENT_ID))?.history).toHaveLength(1)
   })
 })
 
 describe('conflicts processed out of stream order', () => {
-  /** Everything stored for both shipments, except generated ids and processing times. */
+  /** Everything stored for both shipments, except updated_at (processing time). */
   async function snapshot() {
     return {
-      events: await storedEvents(db.pool),
-      quarantined: (await quarantinedEvents(db.pool)).map(({ id: _id, detected_at: _detectedAt, ...row }) => row),
+      messages: await receivedMessages(db.pool),
+      conflicts: await trackingConflicts(db.pool),
       readModels: [await readModel(db.pool, SHIPMENT_ID), await readModel(db.pool, OTHER_SHIPMENT_ID)],
     }
   }
@@ -484,29 +506,23 @@ describe('conflicts processed out of stream order', () => {
   it('keeps the copy with the lower stream sequence when it is redelivered after a different copy', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const { registration, atHub } = journey()
-    const second = { ...atHub, data: { ...atHub.data, facilityId: 'DEPOT-OSTRAVA' } }
+    const second = { ...atHub, receivedAt: '2026-10-28T10:00:00Z', data: { ...atHub.data, facilityId: 'DEPOT-OSTRAVA' } }
     await publish(registration, atHub, second)
 
     await startConsuming(failingFirstDelivery(2))
     await waitUntilAcked()
 
-    // The second copy was stored first, then the redelivered first copy replaced it.
+    // The second copy was processed first and counted until the first one was redelivered.
     expect(sequences()).toEqual([1, 3, 2])
     expect(results()).toEqual(['processed', 'processed', 'conflict'])
     const result = await snapshot()
-    expect(result.events.find((row) => row.event_id === atHub.eventId)).toMatchObject({
-      payload: atHub,
-      stream_sequence: '2',
-    })
-    expect(result.quarantined).toEqual([
+    expect(result.conflicts).toEqual([
       {
-        reason: 'CONFLICT',
-        event_id: atHub.eventId,
         shipment_id: SHIPMENT_ID,
-        subject: 'logistics.parcel.arrived_at_hub.v1',
+        event_id: atHub.eventId,
         stream_sequence: '3',
-        payload: second,
-        details: ['data.facilityId'],
+        received_at: new Date(second.receivedAt),
+        differing_fields: ['data.facilityId'],
       },
     ])
     expect(result.readModels[0]).toEqual(expectedReadModel(TRACKING_NUMBER, project([registration, atHub])))
@@ -528,13 +544,14 @@ describe('conflicts processed out of stream order', () => {
     await startConsuming(failingFirstDelivery(1))
     await waitUntilAcked()
 
-    // Until the redelivery SHIPMENT_ID was known; its registration is now quarantined.
+    // Until the redelivery SHIPMENT_ID was known; its registration is now a conflict.
     expect(sequences().at(-1)).toBe(1)
     expect(results()).toContain('processed')
     const result = await snapshot()
     expect(result.readModels).toEqual([null, expectedReadModel(TRACKING_NUMBER, project([first]))])
-    expect(result.quarantined).toMatchObject([
-      { shipment_id: OTHER_SHIPMENT_ID, stream_sequence: '2', details: ['correlationId', 'shipmentId'] },
+    // Listed under the known shipment only.
+    expect(result.conflicts).toMatchObject([
+      { shipment_id: OTHER_SHIPMENT_ID, stream_sequence: '2', differing_fields: ['correlationId', 'shipmentId'] },
     ])
 
     await replay()
@@ -542,7 +559,7 @@ describe('conflicts processed out of stream order', () => {
     expect(await snapshot()).toEqual(result)
   })
 
-  it('a message redelivered after it was moved to the quarantine is quarantined once', async () => {
+  it('changes nothing when the copies are delivered again', async () => {
     const { registration, atHub } = journey()
     const second = { ...atHub, data: { ...atHub.data, facilityId: 'DEPOT-OSTRAVA' } }
     const process = createProcessEvent({ pool: db.pool })
@@ -558,24 +575,19 @@ describe('conflicts processed out of stream order', () => {
     expect(await snapshot()).toEqual(result)
   })
 
-  function permutations<T>(items: T[]): T[][] {
-    if (items.length <= 1) return [items]
-    return items.flatMap((item, index) =>
-      permutations(items.filter((_other, i) => i !== index)).map((rest) => [item, ...rest]),
-    )
-  }
-
   it('gives the result of stream order for every processing order', async () => {
     const { atHub } = journey()
     const registrations = [
       registered('2026-10-28T08:00:00Z'),
       registered('2026-10-28T08:05:00Z', { shipmentId: OTHER_SHIPMENT_ID }),
     ]
-    // Copies of one event in stream order: the first, a different one of another shipment, a
-    // retry of the first that was received earlier (R1), and one more different copy.
+    // Copies of one event in stream order: the first, a different one of another shipment and
+    // its retry (two conflicts), a retry of the first that was received earlier (R1), and one
+    // more different copy.
     const copies: TrackingEvent[] = [
       atHub,
       { ...atHub, shipmentId: OTHER_SHIPMENT_ID, correlationId: OTHER_SHIPMENT_ID },
+      { ...atHub, shipmentId: OTHER_SHIPMENT_ID, correlationId: OTHER_SHIPMENT_ID, receivedAt: '2026-10-28T09:30:10Z' },
       { ...atHub, receivedAt: '2026-10-28T09:30:30Z' },
       { ...atHub, data: { ...atHub.data, scannerId: 'SCANNER-99' } },
     ]
@@ -595,21 +607,40 @@ describe('conflicts processed out of stream order', () => {
     }
 
     const inStreamOrder = await resultOf(messages)
-    expect(inStreamOrder.events.find((row) => row.event_id === atHub.eventId)).toMatchObject({
-      shipment_id: SHIPMENT_ID,
-      payload: copies[2],
-      stream_sequence: '3',
-    })
-    expect(inStreamOrder.quarantined.map((row) => [row.stream_sequence, row.details])).toEqual([
-      ['4', ['correlationId', 'shipmentId']],
-      ['6', ['data.scannerId']],
+    expect(inStreamOrder.readModels).toEqual([
+      expectedReadModel(TRACKING_NUMBER, project([registrations[0]!, copies[3]!])),
+      expectedReadModel(TRACKING_NUMBER, project([registrations[1]!])),
+    ])
+    expect(inStreamOrder.conflicts.map((row) => [row.stream_sequence, row.shipment_id, row.differing_fields])).toEqual([
+      ['4', SHIPMENT_ID, ['correlationId', 'shipmentId']],
+      ['4', OTHER_SHIPMENT_ID, ['correlationId', 'shipmentId']],
+      ['5', SHIPMENT_ID, ['correlationId', 'shipmentId']],
+      ['5', OTHER_SHIPMENT_ID, ['correlationId', 'shipmentId']],
+      ['7', SHIPMENT_ID, ['data.scannerId']],
     ])
 
     const orders = permutations(messages)
-    expect(orders).toHaveLength(24)
+    expect(orders).toHaveLength(120)
     for (const order of orders) {
       expect(await resultOf(order), `order ${order.map((m) => m.streamSequence)}`).toEqual(inStreamOrder)
     }
+  }, 60_000)
+
+  it('rejects a new message whose stream sequence is already stored (the stream was reset alone)', async () => {
+    const { registration, atHub } = journey()
+    const process = createProcessEvent({ pool: db.pool })
+    const metadata = { streamSequence: 1, subject: 'logistics.shipment.registered.v1', deliveryCount: 1 }
+    await process(registration, metadata)
+    const before = await snapshot()
+
+    await expect(process(atHub, metadata)).rejects.toThrow('must be reset together')
+    expect(await snapshot()).toEqual(before)
+
+    // Also if the event itself is already known from another message.
+    await process(atHub, { ...metadata, streamSequence: 2 })
+    const withScan = await snapshot()
+    await expect(process(atHub, metadata)).rejects.toThrow('must be reset together')
+    expect(await snapshot()).toEqual(withScan)
   })
 })
 
@@ -621,7 +652,7 @@ describe('AC-11: scan before the registration', () => {
 
     expect(results()).toEqual(['waiting_for_registration', 'waiting_for_registration'])
     expect(await readModel(db.pool, SHIPMENT_ID)).toBeNull()
-    expect(await storedEvents(db.pool)).toHaveLength(2)
+    expect(await receivedMessages(db.pool)).toHaveLength(2)
 
     await processAll(registration)
 
@@ -651,7 +682,7 @@ describe('AC-04: restart', () => {
     await first.stop()
 
     await publish(outForDelivery, delivered)
-    expect(await storedEvents(db.pool)).toHaveLength(2)
+    expect(await receivedMessages(db.pool)).toHaveLength(2)
 
     await startConsuming()
     await waitUntilAcked()
@@ -669,7 +700,7 @@ describe('AC-04: restart', () => {
     const blocker = await db.owner.connect()
     try {
       await blocker.query('BEGIN')
-      await blocker.query('LOCK TABLE tracking_events IN ACCESS EXCLUSIVE MODE')
+      await blocker.query('LOCK TABLE received_messages IN ACCESS EXCLUSIVE MODE')
       const handle = await startConsuming()
       await publish(registration)
       await vi.waitFor(async () => {
@@ -691,7 +722,7 @@ describe('AC-04: restart', () => {
     }
 
     await waitUntilAcked()
-    expect(await storedEvents(db.pool)).toHaveLength(1)
+    expect(await receivedMessages(db.pool)).toHaveLength(1)
     expect(results()).toEqual(['processed'])
   })
 })

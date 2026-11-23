@@ -110,8 +110,8 @@ The error body has the same shape as in the [Shipment API](shipment-api.md#error
 - **No `404`.** The service does not check whether the shipment exists. A scan can arrive before
   the registration; it is published anyway and handled downstream (AC-11).
 - **No `409`.** The service keeps no state, so it cannot see that an `eventId` was already used
-  with different content. Tracking detects and quarantines such conflicts
-  ([ADR-0005](adr/0005-quarantine-conflicting-events.md), AC-12).
+  with different content. Tracking records such conflicting copies in `tracking_conflicts` and
+  does not project them ([ADR-0014](adr/0014-tracking-stores-every-message.md), AC-12).
 
 ### Retries
 

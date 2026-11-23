@@ -40,15 +40,24 @@ export async function startTestDatabase(): Promise<TestDatabase> {
 }
 
 export async function clearTables(owner: pg.Pool): Promise<void> {
-  await owner.query('TRUNCATE tracking_events, shipment_tracking, tracking_history, quarantined_events')
+  await owner.query('TRUNCATE received_messages, shipment_tracking, tracking_history, tracking_conflicts, quarantined_events')
 }
 
-export async function storedEvents(pool: pg.Pool) {
-  return (await pool.query('SELECT * FROM tracking_events ORDER BY event_id')).rows
+/** Everything received, in stream order. */
+export async function receivedMessages(pool: pg.Pool) {
+  return (await pool.query('SELECT * FROM received_messages ORDER BY stream_sequence')).rows
+}
+
+export async function trackingConflicts(pool: pg.Pool) {
+  const result = await pool.query(
+    `SELECT shipment_id, event_id, stream_sequence, received_at, differing_fields
+       FROM tracking_conflicts ORDER BY stream_sequence, shipment_id`,
+  )
+  return result.rows
 }
 
 export async function quarantinedEvents(pool: pg.Pool) {
-  return (await pool.query('SELECT * FROM quarantined_events ORDER BY stream_sequence')).rows
+  return (await pool.query('SELECT * FROM quarantined_events')).rows
 }
 
 /** All of the read model of a shipment except updated_at, or null if it is not known. */

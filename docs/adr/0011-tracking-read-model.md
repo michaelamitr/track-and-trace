@@ -1,6 +1,6 @@
 # ADR-0011: Tracking read model
 
-Status: Accepted (recorded 2026-11-20, amended 2026-11-23)
+Status: Superseded by [ADR-0014](0014-tracking-stores-every-message.md) (recorded 2026-11-20, amended 2026-11-23)
 
 ## Context
 

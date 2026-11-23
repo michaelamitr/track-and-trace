@@ -24,7 +24,7 @@ flowchart TB
   TR["Tracking service<br/>status and history"]
   SLA["SLA monitoring<br/>watches deadlines"]
   NO["Notification<br/>simulated messages"]
-  TRDB[("tracking_db<br/>events (inbox), read model, quarantine")]
+  TRDB[("tracking_db<br/>received messages (inbox), read model, quarantine")]
   SLADB[("sla_db<br/>deadlines, incidents, inbox, outbox")]
   NODB[("notification_db<br/>recipients, notifications, inbox")]
 
@@ -69,16 +69,16 @@ its own database.
   `202` only after the JetStream ack and publishes without `Nats-Msg-Id`
   ([ADR-0010](docs/adr/0010-scan-ingestion-publishing.md));
 - the Tracking service, in [apps/tracking-service](apps/tracking-service/src): event processing
-  (read model, quarantine of conflicting copies) and health endpoints are implemented, the read
+  (read model, including conflicting copies) and health endpoints are implemented, the read
   API ([docs/tracking-api.md](docs/tracking-api.md)) is the next step. Its database
   `tracking_db` (roles `tracking_owner` and `tracking_service`, as in ADR-0008) holds only data
-  derived from the stream ([ADR-0011](docs/adr/0011-tracking-read-model.md)).
+  derived from the stream ([ADR-0014](docs/adr/0014-tracking-stores-every-message.md)).
 
 | Service        | Input                              | Owns (database)                    | Publishes                 |
 | -------------- | ---------------------------------- | ---------------------------------- | ------------------------- |
 | Shipment (implemented) | `POST /shipments`          | shipments, outbox                  | `shipment.registered`     |
 | Scan ingestion (implemented) | `POST /scans`        | no database                        | the four `parcel.*` events |
-| Tracking (processing implemented) | NATS            | events (also the inbox), read model, quarantine | nothing      |
+| Tracking (processing implemented) | NATS            | received messages (also the inbox), read model, quarantine | nothing      |
 | SLA monitoring | NATS + its own deadline scheduler  | deadlines, incidents, inbox, outbox | `sla.breached`            |
 | Notification   | NATS                               | recipients, notifications, inbox   | nothing                   |
 
@@ -111,8 +111,11 @@ Which events each consumer receives follows [EVENTS.md](EVENTS.md).
 ## Processing guarantees
 
 - At-least-once delivery; consumers are idempotent by `eventId` (inbox, planned
-  lesson 3.1). In Tracking the `tracking_events` table is the inbox, and conflicting copies are
-  quarantined ([ADR-0011](docs/adr/0011-tracking-read-model.md)).
+  lesson 3.1). In Tracking the `received_messages` table is the inbox: it stores every message
+  once, by stream sequence, and the copies of an event are resolved when the read model is
+  computed ([ADR-0014](docs/adr/0014-tracking-stores-every-message.md)).
+- The stream and `tracking_db` must always be reset together, because stream sequences restart
+  with a new stream (ADR-0014).
 - A consumer ACKs a message only after its database transaction commits. Implemented in Tracking.
 - A message whose processing fails is redelivered at once, at most 5 deliveries in total
   (`max_deliver`). Until lesson 3.4 (backoff, dead letters) a database outage can use them up;

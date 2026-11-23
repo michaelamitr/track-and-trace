@@ -1,6 +1,6 @@
 # ADR-0005: Quarantine conflicting events
 
-Status: Accepted (recorded 2026-11-07, amended 2026-11-20)
+Status: Accepted (recorded 2026-11-07, amended 2026-11-20 and 2026-11-23)
 
 ## Context
 
@@ -26,6 +26,13 @@ Implemented in lesson 2.4 in the Tracking Service, not in lesson 3.1: conflictin
 written to the general `quarantined_events` table with reason `CONFLICT`
 ([ADR-0011](0011-tracking-read-model.md)) and shown by `GET /tracking/:shipmentId/anomalies`
 ([tracking-api.md](../tracking-api.md)).
+
+## Amendment 2026-11-23
+
+Conflicting copies are recorded in the read model table `tracking_conflicts`, not in
+`quarantined_events`, and are still not projected
+([ADR-0014](0014-tracking-stores-every-message.md)). `quarantined_events` is for invalid messages
+only.
 
 ## Rejected alternatives
 

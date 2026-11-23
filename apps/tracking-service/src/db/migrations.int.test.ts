@@ -13,11 +13,11 @@ const CHECK_VIOLATION = '23514'
 const INSUFFICIENT_PRIVILEGE = '42501'
 
 const MIGRATIONS = [
-  '1795447776000_create-tracking-events',
+  '1795447776000_create-received-messages',
   '1795447836000_create-read-model',
   '1795447896000_create-quarantined-events',
 ]
-const TABLES = ['quarantined_events', 'shipment_tracking', 'tracking_events', 'tracking_history']
+const TABLES = ['quarantined_events', 'received_messages', 'shipment_tracking', 'tracking_conflicts', 'tracking_history']
 const TIME = '2026-10-28T09:30:00Z'
 
 let postgres: TestPostgres
@@ -51,8 +51,11 @@ function insert(table: string, row: Row) {
   )
 }
 
-function eventRow(overrides: Row = {}): Row {
+let sequence = 0
+function messageRow(overrides: Row = {}): Row {
+  sequence += 1
   return {
+    stream_sequence: sequence,
     event_id: randomUUID(),
     shipment_id: randomUUID(),
     event_type: 'parcel.accepted',
@@ -60,7 +63,6 @@ function eventRow(overrides: Row = {}): Row {
     received_at: TIME,
     payload: '{}',
     subject: 'logistics.parcel.accepted.v1',
-    stream_sequence: 1,
     ...overrides,
   }
 }
@@ -93,28 +95,43 @@ function historyRow(overrides: Row = {}): Row {
   }
 }
 
-let sequence = 0
 function quarantineRow(overrides: Row = {}): Row {
   sequence += 1
   return {
-    reason: 'CONFLICT',
+    reason: 'INVALID',
     event_id: randomUUID(),
     shipment_id: randomUUID(),
     subject: 'logistics.parcel.accepted.v1',
     stream_sequence: sequence,
     payload: '{}',
-    details: '["data.facilityId"]',
+    details: '{}',
     ...overrides,
   }
 }
 
-/** A known shipment with one stored event, so a history row can refer to both. */
+/** A known shipment with one received message, so a read-model row can refer to both. */
 async function knownShipment() {
-  const shipmentId = randomUUID()
-  const eventId = randomUUID()
-  await insert('tracking_events', eventRow({ event_id: eventId, shipment_id: shipmentId }))
-  await insert('shipment_tracking', trackingRow({ shipment_id: shipmentId }))
-  return { shipment_id: shipmentId, event_id: eventId }
+  const message = messageRow()
+  await insert('received_messages', message)
+  await insert('shipment_tracking', trackingRow({ shipment_id: message.shipment_id }))
+  return message
+}
+
+async function knownHistoryRow(overrides: Row = {}): Promise<Row> {
+  const { shipment_id, event_id } = await knownShipment()
+  return historyRow({ shipment_id, event_id, ...overrides })
+}
+
+async function knownConflictRow(overrides: Row = {}): Promise<Row> {
+  const { shipment_id, event_id, stream_sequence } = await knownShipment()
+  return {
+    shipment_id,
+    event_id,
+    stream_sequence,
+    received_at: TIME,
+    differing_fields: ['data.facilityId'],
+    ...overrides,
+  }
 }
 
 async function tables(): Promise<string[]> {
@@ -131,12 +148,18 @@ async function indexDefinition(name: string): Promise<string | undefined> {
 
 describe('as tracking_service after migrations up', () => {
   afterEach(async () => {
-    for (const table of ['tracking_history', 'shipment_tracking', 'tracking_events', 'quarantined_events']) {
+    for (const table of [
+      'tracking_conflicts',
+      'tracking_history',
+      'shipment_tracking',
+      'received_messages',
+      'quarantined_events',
+    ]) {
       await service.query(`DELETE FROM ${table}`)
     }
   })
 
-  it('has exactly the four tables of ADR-0011', async () => {
+  it('has exactly the five tables of ADR-0014', async () => {
     expect(await tables()).toEqual(TABLES)
   })
 
@@ -145,14 +168,21 @@ describe('as tracking_service after migrations up', () => {
     expect(await tables()).toContain(table)
   })
 
-  describe('tracking_events', () => {
-    it('stores an event_id once', async () => {
-      const row = eventRow()
-      await insert('tracking_events', row)
+  describe('received_messages', () => {
+    it('stores a stream_sequence once', async () => {
+      const row = messageRow()
+      await insert('received_messages', row)
 
-      await expect(insert('tracking_events', eventRow({ event_id: row.event_id }))).rejects.toMatchObject({
-        code: UNIQUE_VIOLATION,
-      })
+      await expect(
+        insert('received_messages', messageRow({ stream_sequence: row.stream_sequence })),
+      ).rejects.toMatchObject({ code: UNIQUE_VIOLATION, constraint: 'received_messages_pkey' })
+    })
+
+    it('stores several copies of an event', async () => {
+      const row = messageRow()
+      await insert('received_messages', row)
+
+      await expect(insert('received_messages', messageRow({ event_id: row.event_id }))).resolves.toBeDefined()
     })
 
     it.each([
@@ -162,26 +192,18 @@ describe('as tracking_service after migrations up', () => {
       'parcel.out_for_delivery',
       'parcel.delivered',
     ])('accepts %s', async (event_type) => {
-      await expect(insert('tracking_events', eventRow({ event_type }))).resolves.toBeDefined()
+      await expect(insert('received_messages', messageRow({ event_type }))).resolves.toBeDefined()
     })
 
-    it('rejects an event type Tracking does not consume', async () => {
-      await expect(insert('tracking_events', eventRow({ event_type: 'sla.breached' }))).rejects.toMatchObject({
-        code: CHECK_VIOLATION,
-      })
+    it.each([
+      ['an event type Tracking does not consume', { event_type: 'sla.breached' }],
+      ['a stream_sequence that is not positive', { stream_sequence: 0 }],
+    ])('rejects %s', async (_name, overrides) => {
+      await expect(insert('received_messages', messageRow(overrides))).rejects.toMatchObject({ code: CHECK_VIOLATION })
     })
 
-    it('requires a positive stream_sequence', async () => {
-      await expect(insert('tracking_events', eventRow({ stream_sequence: null }))).rejects.toMatchObject({
-        code: NOT_NULL_VIOLATION,
-      })
-      await expect(insert('tracking_events', eventRow({ stream_sequence: 0 }))).rejects.toMatchObject({
-        code: CHECK_VIOLATION,
-      })
-    })
-
-    it('has an index on shipment_id', async () => {
-      expect(await indexDefinition('tracking_events_shipment_id_idx')).toMatch(/\(shipment_id\)$/)
+    it.each(['event_id', 'shipment_id'])('has an index on %s', async (column) => {
+      expect(await indexDefinition(`received_messages_${column}_idx`)).toMatch(new RegExp(`\\(${column}\\)$`))
     })
   })
 
@@ -215,62 +237,92 @@ describe('as tracking_service after migrations up', () => {
   })
 
   describe('tracking_history', () => {
-    it('accepts an entry of a known shipment and a stored event', async () => {
-      await expect(insert('tracking_history', historyRow(await knownShipment()))).resolves.toBeDefined()
+    it('accepts an entry of a known shipment', async () => {
+      await expect(insert('tracking_history', await knownHistoryRow())).resolves.toBeDefined()
     })
 
     it.each([
       ['an unknown status', { status: 'LOST' }],
       ['position 0', { position: 0 }],
     ])('rejects %s', async (_name, overrides) => {
-      await expect(
-        insert('tracking_history', historyRow({ ...(await knownShipment()), ...overrides })),
-      ).rejects.toMatchObject({ code: CHECK_VIOLATION })
+      await expect(insert('tracking_history', await knownHistoryRow(overrides))).rejects.toMatchObject({
+        code: CHECK_VIOLATION,
+      })
     })
 
     it('rejects two entries at the same position of a shipment', async () => {
-      const known = await knownShipment()
-      const otherEventId = randomUUID()
-      await insert('tracking_events', eventRow({ event_id: otherEventId, shipment_id: known.shipment_id }))
-      await insert('tracking_history', historyRow(known))
+      const row = await knownHistoryRow()
+      await insert('tracking_history', row)
 
-      await expect(
-        insert('tracking_history', historyRow({ ...known, event_id: otherEventId })),
-      ).rejects.toMatchObject({ code: UNIQUE_VIOLATION, constraint: 'tracking_history_pkey' })
+      await expect(insert('tracking_history', { ...row, event_id: randomUUID() })).rejects.toMatchObject({
+        code: UNIQUE_VIOLATION,
+        constraint: 'tracking_history_pkey',
+      })
     })
 
     it('rejects the same event twice', async () => {
-      const known = await knownShipment()
-      await insert('tracking_history', historyRow(known))
+      const row = await knownHistoryRow()
+      await insert('tracking_history', row)
 
-      await expect(insert('tracking_history', historyRow({ ...known, position: 2 }))).rejects.toMatchObject({
+      await expect(insert('tracking_history', { ...row, position: 2 })).rejects.toMatchObject({
         code: UNIQUE_VIOLATION,
         constraint: 'tracking_history_event_id_key',
       })
     })
 
-    it.each(['shipment_id', 'event_id'])('rejects an unknown %s', async (column) => {
+    it('rejects an unknown shipment', async () => {
+      await expect(insert('tracking_history', historyRow())).rejects.toMatchObject({ code: FOREIGN_KEY_VIOLATION })
+    })
+  })
+
+  describe('tracking_conflicts', () => {
+    it('accepts a conflict under two known shipments', async () => {
+      const row = await knownConflictRow()
+      const other = await knownShipment()
+      await insert('tracking_conflicts', row)
+
+      await expect(insert('tracking_conflicts', { ...row, shipment_id: other.shipment_id })).resolves.toBeDefined()
+    })
+
+    it('requires received_at', async () => {
       await expect(
-        insert('tracking_history', historyRow({ ...(await knownShipment()), [column]: randomUUID() })),
-      ).rejects.toMatchObject({ code: FOREIGN_KEY_VIOLATION })
+        insert('tracking_conflicts', await knownConflictRow({ received_at: null })),
+      ).rejects.toMatchObject({ code: NOT_NULL_VIOLATION })
+    })
+
+    it('lists a copy once per shipment', async () => {
+      const row = await knownConflictRow()
+      await insert('tracking_conflicts', row)
+
+      await expect(insert('tracking_conflicts', row)).rejects.toMatchObject({ code: UNIQUE_VIOLATION })
+    })
+
+    it('rejects a conflict without differing fields', async () => {
+      await expect(
+        insert('tracking_conflicts', await knownConflictRow({ differing_fields: [] })),
+      ).rejects.toMatchObject({ code: CHECK_VIOLATION })
+    })
+
+    it.each([
+      ['shipment', { shipment_id: randomUUID() }],
+      ['message', { stream_sequence: 1_000_000 }],
+    ])('rejects an unknown %s', async (_name, overrides) => {
+      await expect(insert('tracking_conflicts', await knownConflictRow(overrides))).rejects.toMatchObject({
+        code: FOREIGN_KEY_VIOLATION,
+      })
     })
   })
 
   describe('quarantined_events', () => {
-    it('accepts a conflict, with id and detected_at set', async () => {
-      await insert('quarantined_events', quarantineRow())
+    it('accepts an invalid message without ids, with id and detected_at set', async () => {
+      await insert('quarantined_events', quarantineRow({ event_id: null, shipment_id: null }))
 
       const { rows } = await service.query('SELECT id, detected_at FROM quarantined_events')
       expect(rows).toEqual([{ id: expect.any(String), detected_at: expect.any(Date) }])
     })
 
-    it.each([
-      ['the reason INVALID (lesson 3.4)', { reason: 'INVALID' }],
-      ['a conflict without event_id', { event_id: null }],
-      ['a conflict without shipment_id', { shipment_id: null }],
-      ['a conflict whose details are not a list', { details: '{}' }],
-    ])('rejects %s', async (_name, overrides) => {
-      await expect(insert('quarantined_events', quarantineRow(overrides))).rejects.toMatchObject({
+    it('rejects the reason CONFLICT: conflicts are in tracking_conflicts', async () => {
+      await expect(insert('quarantined_events', quarantineRow({ reason: 'CONFLICT' }))).rejects.toMatchObject({
         code: CHECK_VIOLATION,
       })
     })
@@ -286,23 +338,33 @@ describe('as tracking_service after migrations up', () => {
         code: NOT_NULL_VIOLATION,
       })
     })
+  })
+})
 
-    it('has indexes for the anomalies of both shipments', async () => {
-      expect(await indexDefinition('quarantined_events_shipment_id_idx')).toMatch(/\(shipment_id\)$/)
-      expect(await indexDefinition('quarantined_events_payload_shipment_id_idx')).toMatch(
-        /\(lower\(\(payload ->> 'shipmentId'::text\)\)\)$/,
-      )
-    })
+describe('wall-clock values', () => {
+  it('only shipment_tracking.updated_at and the quarantine have one; nothing else is set by a clock', async () => {
+    const { rows } = await service.query(
+      `SELECT table_name || '.' || column_name AS name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name <> 'pgmigrations'
+          AND data_type LIKE 'timestamp%' AND column_name NOT IN ('occurred_at', 'received_at')
+        ORDER BY name`,
+    )
+    expect(rows.map((row) => row.name)).toEqual([
+      'quarantined_events.detected_at',
+      'shipment_tracking.delivered_at',
+      'shipment_tracking.last_event_at',
+      'shipment_tracking.updated_at',
+    ])
   })
 })
 
 describe('migrations down and up again', () => {
   it('down removes the tables in reverse order, up recreates them', async () => {
     expect((await run('down')).map((m) => m.name)).toEqual([MIGRATIONS[2]])
-    expect(await tables()).toEqual(['shipment_tracking', 'tracking_events', 'tracking_history'])
+    expect(await tables()).toEqual(['received_messages', 'shipment_tracking', 'tracking_conflicts', 'tracking_history'])
 
     expect((await run('down')).map((m) => m.name)).toEqual([MIGRATIONS[1]])
-    expect(await tables()).toEqual(['tracking_events'])
+    expect(await tables()).toEqual(['received_messages'])
 
     expect((await run('down')).map((m) => m.name)).toEqual([MIGRATIONS[0]])
     expect(await tables()).toEqual([])
@@ -311,7 +373,8 @@ describe('migrations down and up again', () => {
     expect(await tables()).toEqual(TABLES)
 
     // The recreated tables are usable by tracking_service again (default privileges).
-    await expect(insert('tracking_history', historyRow(await knownShipment()))).resolves.toBeDefined()
+    await expect(insert('tracking_history', await knownHistoryRow())).resolves.toBeDefined()
+    await expect(insert('tracking_conflicts', await knownConflictRow())).resolves.toBeDefined()
     await expect(insert('quarantined_events', quarantineRow())).resolves.toBeDefined()
   })
 })

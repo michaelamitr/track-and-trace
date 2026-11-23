@@ -1,5 +1,6 @@
 import type pg from 'pg'
 import type { HistoryEntry, TrackingProjection } from '../domain/projection.js'
+import type { Conflict } from '../domain/resolve-copies.js'
 
 type Queryable = Pick<pg.Pool | pg.PoolClient, 'query'>
 
@@ -36,15 +37,18 @@ export async function upsertShipmentTracking(
   )
 }
 
-/** Removes a shipment that is not known from the read model; usually there is nothing to remove. */
-export async function deleteReadModel(db: Queryable, shipmentId: string): Promise<void> {
-  await db.query(`DELETE FROM tracking_history WHERE shipment_id = $1`, [shipmentId])
+/** Removes a shipment that is not known; its history and conflicts must be deleted first. */
+export async function deleteShipmentTracking(db: Queryable, shipmentId: string): Promise<void> {
   await db.query(`DELETE FROM shipment_tracking WHERE shipment_id = $1`, [shipmentId])
 }
 
-/** Replaces the whole history of a shipment; positions follow the given (R2) order from 1. */
-export async function replaceHistory(db: Queryable, shipmentId: string, history: HistoryEntry[]): Promise<void> {
-  await db.query(`DELETE FROM tracking_history WHERE shipment_id = $1`, [shipmentId])
+export async function deleteHistoryAndConflicts(db: Queryable, shipmentIds: string[]): Promise<void> {
+  await db.query(`DELETE FROM tracking_history WHERE shipment_id = ANY($1::uuid[])`, [shipmentIds])
+  await db.query(`DELETE FROM tracking_conflicts WHERE shipment_id = ANY($1::uuid[])`, [shipmentIds])
+}
+
+/** Writes the whole history of a shipment; positions follow the given (R2) order from 1. */
+export async function insertHistory(db: Queryable, shipmentId: string, history: HistoryEntry[]): Promise<void> {
   await db.query(
     `INSERT INTO tracking_history
        (shipment_id, position, event_id, event_type, status, occurred_at, received_at, facility_id, is_anomaly)
@@ -63,4 +67,21 @@ export async function replaceHistory(db: Queryable, shipmentId: string, history:
       history.map((entry) => entry.isAnomaly),
     ],
   )
+}
+
+/** Writes all conflicts of a shipment. */
+export async function insertConflicts(db: Queryable, shipmentId: string, conflicts: Conflict[]): Promise<void> {
+  for (const conflict of conflicts) {
+    await db.query(
+      `INSERT INTO tracking_conflicts (shipment_id, event_id, stream_sequence, received_at, differing_fields)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        shipmentId,
+        conflict.eventId,
+        conflict.streamSequence,
+        new Date(conflict.receivedAt),
+        conflict.differingFields,
+      ],
+    )
+  }
 }
