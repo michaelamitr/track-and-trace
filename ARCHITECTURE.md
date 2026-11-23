@@ -94,6 +94,7 @@ its own database.
 `@tt/db` and `@tt/http` contain no tables, no queries on data, no business logic and no domain
 types. Every service keeps its own database, migration files, roles, errors and config.
 `@tt/messaging/testing` and `@tt/db/testing` start NATS and Postgres in containers for tests.
+`pnpm test:integration` runs the packages one at a time, to keep the load on Docker low.
 
 ## Durable consumers
 
