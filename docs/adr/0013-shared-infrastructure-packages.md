@@ -25,7 +25,7 @@ parameter and never import from a service.
 
 | | In the package | Stays in each service |
 |---|---|---|
-| `@tt/db` | `createPool`, `withTransaction`, `DatabaseUnavailableError` and its detection; `runMigrations` and `verifyNoPendingMigrations` for a given directory; the body of the migrate CLI | the database, its roles and URLs, the migration `.sql` files and their tests, every table and query, the outbox and its relay |
+| `@tt/db` | `createPool`, `runTransaction`, `withTransaction`, `DatabaseUnavailableError` and its detection; `runMigrations` and `verifyNoPendingMigrations` for a given directory; the body of the migrate CLI | the database, its roles and URLs, the migration `.sql` files and their tests, every table and query, the outbox and its relay |
 | `@tt/db/testing` | `startPostgres` (Testcontainers) | which role and database a test connects to |
 | `@tt/http` | `createHttpApp` (Zod, Swagger, 404 handler, logger), the error body and the shared error codes, `NotFoundError`, the error handler with the generic cases, the health routes (ADR-0012) | routes, schemas, title and description, own error codes, the mapping of own errors, the checks and which of them are required, `config.ts` |
 

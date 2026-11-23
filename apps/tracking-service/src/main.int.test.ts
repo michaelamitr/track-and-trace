@@ -8,7 +8,7 @@ import { LOGISTICS_STREAM, publishEvent, setupNats } from '@tt/messaging'
 import { startNats, type TestNats } from '@tt/messaging/testing'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MIGRATIONS_DIR } from './db/migrations.js'
-import { registered, SHIPMENT_ID } from './test-events.js'
+import { parcel, registered, SHIPMENT_ID } from './test-events.js'
 import { clearTables, readModel, startTestDatabase, receivedMessages, type TestDatabase } from './test-support.js'
 
 type RunningService = {
@@ -26,7 +26,7 @@ let nats: TestNats
 let running: RunningService | undefined
 
 beforeAll(async () => {
-  ;[db, nats] = await Promise.all([startTestDatabase(), startNats()])
+  ;[db, nats] = await Promise.all([startTestDatabase({ restartable: true }), startNats()])
 })
 
 afterAll(async () => {
@@ -158,7 +158,7 @@ describe('startup', () => {
 })
 
 describe('running service', () => {
-  it('is ready, processes an event, logs it as service "tracking" and exits with 0 on SIGTERM', async () => {
+  it('is ready, processes an event, serves it over HTTP, logs it as service "tracking" and exits with 0 on SIGTERM', async () => {
     const service = await startReadyService()
     const ready = await fetch(`${service.url}/health/ready`)
     expect(ready.status).toBe(200)
@@ -169,6 +169,12 @@ describe('running service', () => {
     await vi.waitFor(async () => expect((await consumerInfo()).ack_floor.stream_seq).toBe(seq), { timeout: 10_000 })
 
     expect((await readModel(db.pool, SHIPMENT_ID))?.state.status).toBe('REGISTERED')
+    const bodies = { '': { status: 'REGISTERED' }, '/history': { events: [{ eventId: event.eventId }] }, '/anomalies': { conflicts: [] } }
+    for (const [suffix, body] of Object.entries(bodies)) {
+      const res = await fetch(`${service.url}/tracking/${SHIPMENT_ID}${suffix}`)
+      expect(res.status).toBe(200)
+      expect(await res.json()).toMatchObject({ shipmentId: SHIPMENT_ID, ...body })
+    }
     const lines = service.output().split('\n').filter((line) => line.startsWith('{')).map((line) => JSON.parse(line))
     expect(lines.filter((line) => line.result)).toMatchObject([
       { service: 'tracking', eventId: event.eventId, streamSequence: seq, result: 'processed' },
@@ -204,6 +210,54 @@ describe('running service', () => {
     expect(info.num_ack_pending).toBe(0)
     expect(info.ack_floor.stream_seq).toBe(1)
   })
+
+  it.each(['fast', 'kill'] as const)(
+    'survives a database outage (%s) while a message is processed and works after it',
+    async (mode) => {
+      const service = await startReadyService()
+      await publishEvent(nats.js, registered('2026-10-28T08:00:00Z'))
+      await vi.waitFor(async () => expect((await consumerInfo()).ack_floor.stream_seq).toBe(1), { timeout: 10_000 })
+      const blocker = await db.owner.connect()
+      blocker.on('error', () => {})
+      await blocker.query('BEGIN')
+      await blocker.query('LOCK TABLE received_messages IN ACCESS EXCLUSIVE MODE')
+      await publishEvent(nats.js, parcel('parcel.accepted', '2026-10-28T08:15:00Z'))
+      await vi.waitFor(async () => {
+        const { rows } = await db.owner.query("SELECT 1 FROM pg_locks WHERE NOT granted AND relation = 'received_messages'::regclass")
+        expect(rows).toHaveLength(1)
+      })
+
+      try {
+        await db.postgres.stopServer(mode)
+        blocker.release(true)
+
+        await vi.waitFor(async () => {
+          expect((await fetch(`${service.url}/health/ready`)).status).toBe(503)
+        })
+        expect((await fetch(`${service.url}/tracking/${SHIPMENT_ID}`)).status).toBe(503)
+        // Long enough for a late error of the lost connection.
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        expect((await fetch(`${service.url}/health/live`)).status).toBe(200)
+        expect(service.child.exitCode).toBeNull()
+      } finally {
+        await db.postgres.startServer()
+      }
+
+      expect((await fetch(`${service.url}/health/ready`)).status).toBe(200)
+      // The interrupted message may have used up its deliveries (lesson 3.4); a new one is processed.
+      const { seq } = await publishEvent(nats.js, parcel('parcel.arrived_at_hub', '2026-10-28T09:30:00Z'))
+      await vi.waitFor(
+        async () => {
+          const rows = await receivedMessages(db.pool)
+          expect(rows.map((row) => row.stream_sequence)).toContain(String(seq))
+        },
+        { timeout: 10_000 },
+      )
+      const res = await fetch(`${service.url}/tracking/${SHIPMENT_ID}`)
+      expect(await res.json()).toMatchObject({ status: 'AT_HUB' })
+    },
+    60_000,
+  )
 
   it('exits with 1 when its port is taken', async () => {
     const first = await startReadyService()

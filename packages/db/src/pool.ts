@@ -8,6 +8,8 @@ export type Logger = {
  * The connection pool of the running service (its data-only runtime role, ADR-0008).
  * connectionTimeoutMillis makes a request fail (503) instead of waiting
  * forever when the database is down.
+ * Check out clients only with runTransaction or withTransaction: a client taken with
+ * pool.connect() has no 'error' listener, so a lost connection would end the process.
  */
 export function createPool(connectionString: string, log?: Logger): pg.Pool {
   const pool = new pg.Pool({ connectionString, max: 10, connectionTimeoutMillis: 5_000 })

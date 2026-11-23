@@ -1,7 +1,7 @@
 // Integration-test helpers only.
 import type { JetStreamClient } from '@nats-io/jetstream'
 import { createPool, runMigrations } from '@tt/db'
-import { startPostgres } from '@tt/db/testing'
+import { startPostgres, type TestPostgres } from '@tt/db/testing'
 import pg from 'pg'
 import { MIGRATIONS_DIR } from './db/migrations.js'
 import type { RelayLogger } from './outbox/relay.js'
@@ -15,22 +15,27 @@ export type TestDatabase = {
   pool: pg.Pool
   /** Connected as shipment_owner, for setup that the service role cannot do. */
   owner: pg.Pool
+  /** The server; stopServer() and startServer() need `restartable`. */
+  postgres: TestPostgres
   stop(): Promise<void>
 }
 
 /** A fresh Postgres with all migrations run as shipment_owner (as `pnpm db:migrate` does). */
-export async function startTestDatabase(): Promise<TestDatabase> {
-  const postgres = await startPostgres()
+export async function startTestDatabase(options: { restartable?: boolean } = {}): Promise<TestDatabase> {
+  const postgres = await startPostgres(options)
   const ownerUrl = postgres.url('shipment_owner', 'shipment_db')
   const serviceUrl = postgres.url('shipment_service', 'shipment_db')
   await runMigrations({ databaseUrl: ownerUrl, dir: MIGRATIONS_DIR, direction: 'up', log: () => {} })
   const pool = createPool(serviceUrl)
   const owner = new pg.Pool({ connectionString: ownerUrl })
+  // As in createPool: without a listener stopServer() would crash the test process.
+  owner.on('error', () => {})
   return {
     ownerUrl,
     serviceUrl,
     pool,
     owner,
+    postgres,
     async stop() {
       await pool.end()
       await owner.end()

@@ -3,7 +3,6 @@ import type { LogisticsEvent } from '@tt/contracts'
 import {
   consumeEvents,
   LOGISTICS_STREAM,
-  publishEvent,
   setupNats,
   type ConsumeHandle,
   type EventHandler,
@@ -20,11 +19,13 @@ import {
   clearTables,
   expectedReadModel,
   memoryLog,
+  publish,
   quarantinedEvents,
   readModel,
   receivedMessages,
   startTestDatabase,
   trackingConflicts,
+  waitUntilAcked,
   type TestDatabase,
 } from '../test-support.js'
 import { createEventHandler } from './handle-event.js'
@@ -71,28 +72,10 @@ async function startConsuming(handler: EventHandler = trackingHandler()): Promis
   return handle
 }
 
-/** Publishes in the given order; every copy is stored, also one with a known eventId (like Scan Ingestion). */
-async function publish(...events: LogisticsEvent[]): Promise<void> {
-  for (const event of events) await publishEvent(nats.js, event, { deduplicate: false })
-}
-
-/** Waits until every published message is acked; fails if one is dropped or redelivered forever. */
-async function waitUntilAcked(): Promise<void> {
-  const { state } = await nats.jsm.streams.info(LOGISTICS_STREAM.name)
-  await vi.waitFor(
-    async () => {
-      const info = await nats.jsm.consumers.info(LOGISTICS_STREAM.name, 'tracking')
-      expect(info.num_ack_pending).toBe(0)
-      expect(info.ack_floor.stream_seq).toBe(state.last_seq)
-    },
-    { timeout: 10_000, interval: 50 },
-  )
-}
-
 async function processAll(...events: LogisticsEvent[]): Promise<void> {
   if (handles.length === 0) await startConsuming()
-  await publish(...events)
-  await waitUntilAcked()
+  await publish(nats, ...events)
+  await waitUntilAcked(nats)
 }
 
 const results = () => logged.lines.map((line) => line.result)
@@ -323,9 +306,9 @@ describe('failure between write and ACK', () => {
     const { registration } = journey()
     await startConsuming(trackingHandler(failingFirstCommit(db.pool)))
 
-    await publish(registration)
+    await publish(nats, registration)
     await vi.waitFor(async () => expect(await receivedMessages(db.pool)).toHaveLength(1), { timeout: 10_000 })
-    await waitUntilAcked()
+    await waitUntilAcked(nats)
 
     // One result only: the first delivery was rolled back as a whole.
     expect(results()).toEqual(['processed'])
@@ -482,7 +465,7 @@ describe('conflicts processed out of stream order', () => {
     await setupNats(nats.jsm)
     logged.lines.length = 0
     await startConsuming()
-    await waitUntilAcked()
+    await waitUntilAcked(nats)
   }
 
   const sequences = () => logged.lines.map((line) => line.streamSequence)
@@ -507,10 +490,10 @@ describe('conflicts processed out of stream order', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const { registration, atHub } = journey()
     const second = { ...atHub, receivedAt: '2026-10-28T10:00:00Z', data: { ...atHub.data, facilityId: 'DEPOT-OSTRAVA' } }
-    await publish(registration, atHub, second)
+    await publish(nats, registration, atHub, second)
 
     await startConsuming(failingFirstDelivery(2))
-    await waitUntilAcked()
+    await waitUntilAcked(nats)
 
     // The second copy was processed first and counted until the first one was redelivered.
     expect(sequences()).toEqual([1, 3, 2])
@@ -539,10 +522,10 @@ describe('conflicts processed out of stream order', () => {
     const second = registered('2026-10-28T08:00:00Z')
     const first = registered('2026-10-28T08:00:00Z', { eventId: second.eventId, shipmentId: OTHER_SHIPMENT_ID })
     const { atHub } = journey()
-    await publish(first, second, atHub)
+    await publish(nats, first, second, atHub)
 
     await startConsuming(failingFirstDelivery(1))
-    await waitUntilAcked()
+    await waitUntilAcked(nats)
 
     // Until the redelivery SHIPMENT_ID was known; its registration is now a conflict.
     expect(sequences().at(-1)).toBe(1)
@@ -681,11 +664,11 @@ describe('AC-04: restart', () => {
     await processAll(registration, accepted)
     await first.stop()
 
-    await publish(outForDelivery, delivered)
+    await publish(nats, outForDelivery, delivered)
     expect(await receivedMessages(db.pool)).toHaveLength(2)
 
     await startConsuming()
-    await waitUntilAcked()
+    await waitUntilAcked(nats)
 
     expect(await readModel(db.pool, SHIPMENT_ID)).toEqual(
       expectedReadModel(TRACKING_NUMBER, project([registration, accepted, outForDelivery, delivered])),
@@ -702,7 +685,7 @@ describe('AC-04: restart', () => {
       await blocker.query('BEGIN')
       await blocker.query('LOCK TABLE received_messages IN ACCESS EXCLUSIVE MODE')
       const handle = await startConsuming()
-      await publish(registration)
+      await publish(nats, registration)
       await vi.waitFor(async () => {
         const info = await nats.jsm.consumers.info(LOGISTICS_STREAM.name, 'tracking')
         expect(info.num_ack_pending).toBe(1)
@@ -721,7 +704,7 @@ describe('AC-04: restart', () => {
       blocker.release()
     }
 
-    await waitUntilAcked()
+    await waitUntilAcked(nats)
     expect(await receivedMessages(db.pool)).toHaveLength(1)
     expect(results()).toEqual(['processed'])
   })

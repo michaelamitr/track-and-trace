@@ -1,4 +1,5 @@
 import type { JetStreamClient } from '@nats-io/jetstream'
+import { runTransaction } from '@tt/db'
 import { publishEvent } from '@tt/messaging'
 import type pg from 'pg'
 
@@ -46,10 +47,8 @@ export async function publishOutboxBatch(
   js: JetStreamClient,
   batchSize: number,
 ): Promise<number> {
-  const client = await pool.connect()
-  let broken: Error | undefined
-  try {
-    await client.query('BEGIN')
+  // Not withTransaction: a NATS network error must not be reported as a database error.
+  return runTransaction(pool, async (client) => {
     // SKIP LOCKED: rows locked by another relay instance are left to it
     // instead of blocking this one.
     const { rows } = await client.query<OutboxRow>(
@@ -71,18 +70,8 @@ export async function publishOutboxBatch(
         rows.map((row) => row.event_id),
       ])
     }
-    await client.query('COMMIT')
     return rows.length
-  } catch (err) {
-    try {
-      await client.query('ROLLBACK')
-    } catch (rollbackErr) {
-      broken = rollbackErr instanceof Error ? rollbackErr : new Error(String(rollbackErr))
-    }
-    throw err
-  } finally {
-    client.release(broken)
-  }
+  })
 }
 
 /**

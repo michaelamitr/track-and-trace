@@ -1,8 +1,12 @@
 // Integration-test helpers only.
+import type { LogisticsEvent } from '@tt/contracts'
 import { createPool, runMigrations } from '@tt/db'
-import { startPostgres } from '@tt/db/testing'
+import { startPostgres, type TestPostgres } from '@tt/db/testing'
+import { LOGISTICS_STREAM, publishEvent } from '@tt/messaging'
+import type { TestNats } from '@tt/messaging/testing'
 import pg from 'pg'
 import { pino } from 'pino'
+import { expect, vi } from 'vitest'
 import { MIGRATIONS_DIR } from './db/migrations.js'
 import type { TrackingProjection } from './domain/projection.js'
 
@@ -15,22 +19,27 @@ export type TestDatabase = {
   pool: pg.Pool
   /** Connected as tracking_owner, for setup that the service role cannot do. */
   owner: pg.Pool
+  /** The server; stopServer() and startServer() need `restartable`. */
+  postgres: TestPostgres
   stop(): Promise<void>
 }
 
 /** A fresh Postgres with all migrations run as tracking_owner (as `pnpm db:migrate` does). */
-export async function startTestDatabase(): Promise<TestDatabase> {
-  const postgres = await startPostgres()
+export async function startTestDatabase(options: { restartable?: boolean } = {}): Promise<TestDatabase> {
+  const postgres = await startPostgres(options)
   const ownerUrl = postgres.url('tracking_owner', 'tracking_db')
   const serviceUrl = postgres.url('tracking_service', 'tracking_db')
   await runMigrations({ databaseUrl: ownerUrl, dir: MIGRATIONS_DIR, direction: 'up', log: () => {} })
   const pool = createPool(serviceUrl)
   const owner = new pg.Pool({ connectionString: ownerUrl })
+  // As in createPool: without a listener stopServer() would crash the test process.
+  owner.on('error', () => {})
   return {
     ownerUrl,
     serviceUrl,
     pool,
     owner,
+    postgres,
     async stop() {
       await pool.end()
       await owner.end()
@@ -41,6 +50,24 @@ export async function startTestDatabase(): Promise<TestDatabase> {
 
 export async function clearTables(owner: pg.Pool): Promise<void> {
   await owner.query('TRUNCATE received_messages, shipment_tracking, tracking_history, tracking_conflicts, quarantined_events')
+}
+
+/** Publishes in the given order; every copy is stored, also one with a known eventId (like Scan Ingestion). */
+export async function publish(nats: TestNats, ...events: LogisticsEvent[]): Promise<void> {
+  for (const event of events) await publishEvent(nats.js, event, { deduplicate: false })
+}
+
+/** Waits until every published message is acked; fails if one is dropped or redelivered forever. */
+export async function waitUntilAcked(nats: TestNats): Promise<void> {
+  const { state } = await nats.jsm.streams.info(LOGISTICS_STREAM.name)
+  await vi.waitFor(
+    async () => {
+      const info = await nats.jsm.consumers.info(LOGISTICS_STREAM.name, 'tracking')
+      expect(info.num_ack_pending).toBe(0)
+      expect(info.ack_floor.stream_seq).toBe(state.last_seq)
+    },
+    { timeout: 10_000, interval: 50 },
+  )
 }
 
 /** Everything received, in stream order. */

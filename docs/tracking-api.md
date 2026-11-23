@@ -1,10 +1,8 @@
 # Tracking API
 
 The HTTP contract of the Tracking Service
-([`apps/tracking-service`](../apps/tracking-service/src)). Status: event processing and the
-health endpoints are implemented; the three read endpoints (`GET /tracking/...`) and the parts
-marked (planned) are the next step. How the read model is stored is decided in
-[ADR-0014](adr/0014-tracking-stores-every-message.md), readiness in
+([`apps/tracking-service`](../apps/tracking-service/src)). How the read model is stored is decided
+in [ADR-0014](adr/0014-tracking-stores-every-message.md), readiness in
 [ADR-0012](adr/0012-readiness-reflects-request-path.md). The status rules are in
 [tracking-projection.md](tracking-projection.md), the events in [EVENTS.md](../EVENTS.md).
 
@@ -28,7 +26,18 @@ before the registration are stored and evaluated when it arrives
 ([AC-11](acceptance-scenarios.md)); until then every endpoint answers `404` for that shipment,
 even though scans for it exist.
 
-## GET /tracking/:shipmentId (planned)
+## Reads
+
+The same for all three read endpoints:
+
+- `shipmentId` is accepted in any letter case; IDs in responses are lowercase.
+- All times in responses are ISO 8601 in UTC with milliseconds (`Date.toISOString()`), however the
+  event wrote them: `09:30:00Z` is returned as `09:30:00.000Z`. Fractions finer than a millisecond
+  are dropped.
+- A response is one consistent snapshot of the read model (a single SQL statement); it never mixes
+  rows from before and after a message was processed. Two requests can see different snapshots.
+
+## GET /tracking/:shipmentId
 
 The current state of a shipment.
 
@@ -40,7 +49,7 @@ Response body for `200`:
   "trackingNumber": "PF-4821093375",
   "status": "AT_HUB",
   "lastLocation": "DEPOT-BRNO",
-  "lastEventAt": "2026-10-28T09:30:00Z",
+  "lastEventAt": "2026-10-28T09:30:00.000Z",
   "deliveredAt": null,
   "updatedAt": "2026-10-28T09:31:13.204Z"
 }
@@ -71,7 +80,7 @@ find out why a shipment stopped updating:
 | old | old | No new events reached Tracking. Either the parcel is not being scanned, or Tracking is not processing (check `GET /health/ready`, its `nats` check and the consumer's pending messages). If other shipments have a recent `updatedAt`, Tracking is working. |
 | recent | much later than `lastEventAt` | The scan reached Tracking late (scanner offline, retries, or Tracking was catching up). Compare `occurredAt` and `receivedAt` in the history. |
 
-## GET /tracking/:shipmentId/history (planned)
+## GET /tracking/:shipmentId/history
 
 The ordered history of a shipment, in R2 order (`occurredAt`, then lifecycle phase, then
 `eventId`), never in arrival order. Every unique event appears once (R1), including anomalies.
@@ -86,8 +95,8 @@ Response body for `200`:
       "eventId": "5b3f7d0e-2c1a-4e8b-9f6d-3a2b1c0d9e8f",
       "eventType": "shipment.registered",
       "status": "REGISTERED",
-      "occurredAt": "2026-10-28T08:00:00Z",
-      "receivedAt": "2026-10-28T08:00:00Z",
+      "occurredAt": "2026-10-28T08:00:00.000Z",
+      "receivedAt": "2026-10-28T08:00:00.000Z",
       "facilityId": null,
       "isAnomaly": false
     },
@@ -95,8 +104,8 @@ Response body for `200`:
       "eventId": "4d36957b-6c2b-47e0-b784-13a9b00c0b67",
       "eventType": "parcel.arrived_at_hub",
       "status": "AT_HUB",
-      "occurredAt": "2026-10-28T09:30:00Z",
-      "receivedAt": "2026-10-28T09:31:12Z",
+      "occurredAt": "2026-10-28T09:30:00.000Z",
+      "receivedAt": "2026-10-28T09:31:12.000Z",
       "facilityId": "DEPOT-BRNO",
       "isAnomaly": false
     }
@@ -116,7 +125,7 @@ Each entry is a `HistoryEntry` of `project()`:
 | `facilityId` | string \| `null` | Facility of the scan. `null` for `shipment.registered`. |
 | `isAnomaly` | boolean | `true` if the event is ordered after the first `DELIVERED` (R5). |
 
-## GET /tracking/:shipmentId/anomalies (planned)
+## GET /tracking/:shipmentId/anomalies
 
 What did not fit into the normal history of a shipment.
 
@@ -130,8 +139,8 @@ Response body for `200`:
       "eventId": "9a1e2b3c-4d5e-4f60-8a7b-6c5d4e3f2a1b",
       "eventType": "parcel.arrived_at_hub",
       "status": "AT_HUB",
-      "occurredAt": "2026-10-29T08:15:00Z",
-      "receivedAt": "2026-10-29T08:15:04Z",
+      "occurredAt": "2026-10-29T08:15:00.000Z",
+      "receivedAt": "2026-10-29T08:15:04.000Z",
       "facilityId": "DEPOT-BRNO",
       "isAnomaly": true
     }
@@ -158,19 +167,20 @@ Response body for `200`:
 
 How conflicts are listed:
 
+- They are ordered by `streamSequence`.
 - `receivedAt` is ignored, and times are compared as instants: `09:30:00Z` and `09:30:00.000Z`
   are equal, so they are not a conflict.
 - A redelivery of the same message is listed once; each new conflicting copy sent by a producer
   is listed separately.
 - A conflicting copy with a different `shipmentId` is listed under both shipments: the one of
-  the kept copy and its own.
+  the kept copy and its own, each once that shipment is known.
 - Which copy is kept does not depend on the processing order: if a copy with a lower stream
   sequence is processed later, it becomes the kept one and the list changes accordingly.
 
 Both lists are empty when there is nothing to report. Invalid messages (quarantine reason
 `INVALID`, lesson 3.4) are not part of this endpoint.
 
-## Status codes (planned)
+## Status codes
 
 The same for all three read endpoints.
 

@@ -1,21 +1,22 @@
+import { EventEmitter } from 'node:events'
 import type pg from 'pg'
 import { describe, expect, it, vi } from 'vitest'
 import { DatabaseUnavailableError } from './errors.js'
-import { withTransaction } from './transaction.js'
+import { runTransaction, withTransaction } from './transaction.js'
 
 /** A pool with one client that records its queries; `fail` makes a statement throw. */
 function fakePool(fail: Record<string, Error> = {}) {
   const queries: string[] = []
   const release = vi.fn()
-  const client = {
+  const client = Object.assign(new EventEmitter(), {
     async query(sql: string) {
       queries.push(sql)
       if (fail[sql]) throw fail[sql]
     },
     release,
-  }
+  })
   const pool = { connect: async () => client } as unknown as pg.Pool
-  return { pool, queries, release }
+  return { pool, client, queries, release }
 }
 
 describe('withTransaction', () => {
@@ -77,5 +78,60 @@ describe('withTransaction', () => {
         throw new Error('Connection terminated unexpectedly')
       }),
     ).rejects.toBeInstanceOf(DatabaseUnavailableError)
+  })
+})
+
+describe('a connection lost while the client is checked out', () => {
+  const lost = new Error('Connection terminated unexpectedly')
+
+  it('releases the client with the first error as broken, also if the rollback works', async () => {
+    const { pool, client, release } = fakePool()
+    const err = new Error('boom')
+
+    await expect(
+      withTransaction(pool, async () => {
+        client.emit('error', lost)
+        client.emit('error', new Error('another one'))
+        throw err
+      }),
+    ).rejects.toBe(err)
+
+    expect(release).toHaveBeenCalledExactlyOnceWith(lost)
+  })
+
+  it('becomes DatabaseUnavailableError through the next query', async () => {
+    const { pool, client, release } = fakePool({ COMMIT: lost, ROLLBACK: lost })
+
+    await expect(withTransaction(pool, async () => void client.emit('error', lost))).rejects.toBeInstanceOf(
+      DatabaseUnavailableError,
+    )
+
+    expect(release).toHaveBeenCalledExactlyOnceWith(lost)
+  })
+
+  it.each([
+    ['success', async () => {}],
+    ['failure', async () => Promise.reject(new Error('boom'))],
+  ])('is handled until the client is released, and no listener is left after %s', async (_label, work) => {
+    const { pool, client, release } = fakePool()
+    let listenersAtRelease = 0
+    release.mockImplementation(() => {
+      listenersAtRelease = client.listenerCount('error')
+    })
+
+    await withTransaction(pool, work).catch(() => {})
+
+    expect(listenersAtRelease).toBe(1)
+    expect(client.listenerCount('error')).toBe(0)
+  })
+})
+
+describe('runTransaction', () => {
+  it('rejects with the errors as they are', async () => {
+    const cause = Object.assign(new Error('refused'), { code: 'ECONNREFUSED' })
+    const unreachable = { connect: () => Promise.reject(cause) } as unknown as pg.Pool
+
+    await expect(runTransaction(unreachable, async () => {})).rejects.toBe(cause)
+    await expect(runTransaction(fakePool().pool, () => Promise.reject(cause))).rejects.toBe(cause)
   })
 })

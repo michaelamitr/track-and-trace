@@ -6,6 +6,7 @@ import type pg from 'pg'
 import { pino } from 'pino'
 import { createEventHandler } from './application/handle-event.js'
 import { createProcessEvent } from './application/process-event.js'
+import { createGetAnomalies, createGetHistory, createGetTracking } from './application/read-tracking.js'
 import { loadConfig } from './config.js'
 import { MIGRATIONS_DIR } from './db/migrations.js'
 import { createHealthChecks } from './health.js'
@@ -34,7 +35,13 @@ try {
   await verifyStream(jsm)
   await verifyConsumer(jsm, 'tracking')
 
-  const app = await buildApp({ checks: createHealthChecks({ pool, nc }), logger: log })
+  const app = await buildApp({
+    getTracking: createGetTracking({ pool }),
+    getHistory: createGetHistory({ pool }),
+    getAnomalies: createGetAnomalies({ pool }),
+    checks: createHealthChecks({ pool, nc }),
+    logger: log,
+  })
 
   const handler = createEventHandler({ processEvent: createProcessEvent({ pool }), log })
   consumer = await consumeEvents(jetstream(nc), 'tracking', handler)
