@@ -66,7 +66,7 @@ This log records how AI was used, where it was wrong, and how I verified its out
 - **Fix:** every prompt for Claude Code now says not to run commands against my local Docker
   infrastructure. My local stream was reset to an empty state on 2026-11-20, before the
   Tracking Service started reading it.
-- **Verification:** `nats stream view LOGISTICS_EVENTS` – no other unexpected events.
+- **Verification:** after the reset, `nats stream info LOGISTICS_EVENTS` showed `Messages: 0`.
 
 ### 6. A transaction that ended the whole service when the database went down
 
@@ -81,12 +81,12 @@ This log records how AI was used, where it was wrong, and how I verified its out
 - **Verification:** 14 outage tests failed before the fix and pass after it; 8 deliberate
   breaks of the fix are caught.
 
-### 7. An integration test that passed for the wrong reason
+### 7. An integration test that sometimes talked to another test's NATS
 
 - **What AI did:** the AC-07 test stops and restarts a test NATS. When the packages' tests ran
   in parallel, Docker gave the stopped container's address to another package's NATS, so Scan
-  Ingestion sometimes got `202` from a different NATS. AI's first explanation (a reused port)
-  was wrong.
+  Ingestion sometimes got `202` from a different NATS and the test failed. AI's first explanation
+  (a reused port) was wrong.
 - **How it was noticed:** the integration suite failed in 3 of 16 runs; the first fix based on
   the wrong explanation did not hold, and the real cause was traced.
 - **Fix:** every restartable test NATS gets its own Docker network and reserved port and waits
