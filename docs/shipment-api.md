@@ -66,16 +66,24 @@ Response body for `201` and `200`:
 | `200` | | The same request again; returns the existing shipment. | Treat it like `201`. |
 | `400` | `VALIDATION_ERROR` | Invalid body. | Fix the request; do not retry it unchanged. |
 | `409` | `ORDER_CONFLICT` | The same `orderReference` with different data. | Do not retry; check the order data. |
-| `503` | `DEPENDENCY_UNAVAILABLE` | The database is unavailable; nothing was saved. | Retry the same request later. |
+| `503` | `DEPENDENCY_UNAVAILABLE` | The database is unavailable. Usually nothing was saved, but this is not guaranteed (see [Repeated requests](#repeated-requests)). | Retry the same request later. |
 | `500` | `INTERNAL_ERROR` | Unexpected error. | Retry the same request later. |
 
 A NATS outage does not fail the request: the event waits in the outbox.
+
+An SQL statement that hits its time limit is answered with `503`, like an unavailable database
+(planned, [ADR-0015](adr/0015-consumer-failure-handling.md)). This also holds for
+`GET /shipments/:shipmentId`.
 
 ### Repeated requests
 
 - **Lost response.** The e-shop retries and gets `200` with the same `shipmentId` and
   `trackingNumber`. Nothing is published again; the outbox row written by the first request
   guarantees publication.
+- **`503`.** It does not guarantee that nothing was saved: if the connection is lost or a time limit
+  hits during `COMMIT`, the shipment may have been saved. Retrying with the same `orderReference`
+  is safe: if it was saved, the retry returns the existing shipment (`200`,
+  [ADR-0007](adr/0007-idempotent-shipment-registration.md)), otherwise it creates it (`201`).
 - **Same `orderReference`, different data.** `409`, nothing is changed or published. All request
   fields are compared; `expectedDeliveryAt` is compared as an instant, so
   `2026-11-11T16:00:00Z` and `2026-11-11T16:00:00.000Z` are the same data.

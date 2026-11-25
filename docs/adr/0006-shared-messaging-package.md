@@ -1,6 +1,6 @@
 # ADR-0006: Shared messaging package
 
-Status: Accepted (recorded 2026-11-07, amended 2026-11-08 and 2026-11-16)
+Status: Accepted (recorded 2026-11-07, amended 2026-11-08, 2026-11-16 and 2026-11-25)
 
 ## Context
 
@@ -41,6 +41,14 @@ stream and the durable consumers also need one agreed configuration.
 Service keeps it; Scan Ingestion publishes without `msgID`, so copies with the same `eventId` are
 not dropped by JetStream and conflicts reach Tracking
 ([ADR-0010](0010-scan-ingestion-publishing.md)).
+
+## Amendment 2026-11-25
+
+The behaviour of `consumeEvents` on failure is defined in
+[ADR-0015](0015-consumer-failure-handling.md): transient errors are retried inside the service,
+permanent errors are naked with a growing delay and quarantined from the 5th delivery on, and
+invalid messages are quarantined and acked instead of terminated. `max_deliver` is unlimited. The
+ack after the handler resolves is unchanged.
 
 ## Rejected alternatives
 

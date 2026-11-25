@@ -1,6 +1,6 @@
 # ADR-0010: Scan ingestion publishes synchronously without broker deduplication
 
-Status: Accepted (recorded 2026-11-16)
+Status: Accepted (recorded 2026-11-16, amended 2026-11-25)
 
 ## Context
 
@@ -41,6 +41,12 @@ This changes the "`msgID = eventId`" rule of ADR-0006 into a per-producer choice
 - Negative: while NATS is down, scans are rejected with `503` and the scanner has to keep them
   until NATS is back.
 - Negative: `@tt/messaging` must allow publishing without `msgID`.
+
+## Amendment 2026-11-25
+
+Conflicting scans are not quarantined: Tracking records them in `tracking_conflicts` and does not
+project them ([ADR-0014](0014-tracking-stores-every-message.md)). The quarantine holds only messages
+with reason `INVALID` or `PROCESSING_FAILED` ([ADR-0015](0015-consumer-failure-handling.md)).
 
 ## Rejected alternatives
 

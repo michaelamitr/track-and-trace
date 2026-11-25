@@ -1,6 +1,6 @@
 # ADR-0005: Quarantine conflicting events
 
-Status: Accepted (recorded 2026-11-07, amended 2026-11-20 and 2026-11-23)
+Status: Accepted (recorded 2026-11-07, amended 2026-11-20, 2026-11-23 and 2026-11-25)
 
 ## Context
 
@@ -33,6 +33,13 @@ Conflicting copies are recorded in the read model table `tracking_conflicts`, no
 `quarantined_events`, and are still not projected
 ([ADR-0014](0014-tracking-stores-every-message.md)). `quarantined_events` is for invalid messages
 only.
+
+## Amendment 2026-11-25
+
+`quarantined_events` is no longer for invalid messages only: it holds messages with reason `INVALID`
+or `PROCESSING_FAILED` ([ADR-0015](0015-consumer-failure-handling.md)). Conflicting copies are still
+not quarantined; they are recorded in `tracking_conflicts`
+([ADR-0014](0014-tracking-stores-every-message.md)).
 
 ## Rejected alternatives
 

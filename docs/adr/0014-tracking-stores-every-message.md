@@ -1,6 +1,6 @@
 # ADR-0014: Tracking stores every message
 
-Status: Accepted (recorded 2026-11-23)
+Status: Accepted (recorded 2026-11-23, amended 2026-11-25)
 
 Supersedes [ADR-0011](0011-tracking-read-model.md) and amends
 [ADR-0005](0005-quarantine-conflicting-events.md).
@@ -126,6 +126,20 @@ error instead of being taken for a redelivery.
   processed it. A conflict can change which copy counts when an earlier copy is processed late.
 - Negative: messages of shipments that are never registered stay in `received_messages` and are not
   visible through the API.
+
+## Amendment 2026-11-25
+
+Failure handling is defined in [ADR-0015](0015-consumer-failure-handling.md).
+
+- `quarantined_events` is not for invalid messages only. It has two reasons: `INVALID` for messages
+  that are not a valid event, and `PROCESSING_FAILED` for valid messages whose processing failed on
+  the 5th or a later delivery. Conflicting copies are not in it; they are in `tracking_conflicts`.
+  The raw message is stored as bytes. Nothing in `quarantined_events` is part of the read model.
+- `received_messages` holds every message that was processed. A message in the quarantine with
+  `PROCESSING_FAILED` is not in it.
+- Quarantine rows are an operational record, not derived from the stream: a replay after a code fix
+  may not reproduce `PROCESSING_FAILED` rows. What a rebuild does with the quarantine is decided in
+  lesson 4.1.
 
 ## Rejected alternatives
 

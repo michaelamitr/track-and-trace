@@ -8,12 +8,13 @@ rule they check. The events themselves are described in [`EVENTS.md`](../EVENTS.
 Events are delivered at least once and can arrive out of order, so the result depends only on which
 events exist, never on how many times or in what order they were delivered.
 
-The service stores every message in `received_messages` and, for each message, recomputes the
-shipment from all its stored copies: `resolveCopies()` decides which copy of each event counts and
+The service stores every processed message in `received_messages` (a message that cannot be
+processed is quarantined, [ADR-0015](adr/0015-consumer-failure-handling.md)) and, for each message,
+recomputes the shipment from all its stored copies: `resolveCopies()` decides which copy of each event counts and
 `project()` gets the kept events. Once the shipment's `shipment.registered` is stored, the result is
 saved in `shipment_tracking` (current state), `tracking_history` (ordered history) and
-`tracking_conflicts` (conflicting copies), which the [HTTP API](tracking-api.md) reads. All tables
-are derived from the stream and can be rebuilt by a replay. See
+`tracking_conflicts` (conflicting copies), which the [HTTP API](tracking-api.md) reads. All
+these tables are derived from the stream and can be rebuilt by a replay. See
 [ADR-0014](adr/0014-tracking-stores-every-message.md).
 
 ## Shipment statuses

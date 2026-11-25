@@ -177,8 +177,9 @@ How conflicts are listed:
 - Which copy is kept does not depend on the processing order: if a copy with a lower stream
   sequence is processed later, it becomes the kept one and the list changes accordingly.
 
-Both lists are empty when there is nothing to report. Invalid messages (quarantine reason
-`INVALID`, lesson 3.4) are not part of this endpoint.
+Both lists are empty when there is nothing to report. Quarantined messages (reasons `INVALID` and
+`PROCESSING_FAILED`) are not part of this endpoint; see
+[`GET /quarantine`](#get-quarantine-operational).
 
 ## Status codes
 
@@ -189,10 +190,72 @@ The same for all three read endpoints.
 | `200` | | The shipment is known. |
 | `400` | `VALIDATION_ERROR` | `shipmentId` is not a UUID. |
 | `404` | `NOT_FOUND` | The shipment is not known: no `shipment.registered` has been processed for it, even if scans exist. |
-| `503` | `DEPENDENCY_UNAVAILABLE` | The database is unavailable. Retry later. |
+| `503` | `DEPENDENCY_UNAVAILABLE` | The database is unavailable or a statement hit its time limit (planned, [ADR-0015](adr/0015-consumer-failure-handling.md)). Retry later. |
 | `500` | `INTERNAL_ERROR` | Unexpected error. Retry later. |
 
 The error body has the same shape as in the [Shipment API](shipment-api.md#error-body).
+
+## GET /quarantine (operational)
+
+Status: designed, not implemented yet (lesson 3.4).
+
+Messages that Tracking could not process
+([ADR-0015](adr/0015-consumer-failure-handling.md), [AC-10](acceptance-scenarios.md)), newest
+first. The endpoint is for operators, not customers, and has no authentication (MVP). How to
+investigate and reprocess a message is in the [RUNBOOK](../RUNBOOK.md).
+
+Query parameters, all optional:
+
+| Parameter | Type | Rule |
+|---|---|---|
+| `reason` | `INVALID` \| `PROCESSING_FAILED` | Only messages with this reason. Default: all. |
+| `limit` | integer | 1–200, default `50`. |
+
+Request: `GET /quarantine?reason=INVALID&limit=20`
+
+Response body for `200`:
+
+```json
+{
+  "messages": [
+    {
+      "id": 7,
+      "reason": "INVALID",
+      "subject": "logistics.parcel.arrived_at_hub.v1",
+      "streamSequence": 1057,
+      "eventId": "c1a7f0de-9b1e-4c55-8f0e-2d6b7a3e4f10",
+      "shipmentId": null,
+      "details": "shipmentId: Invalid UUID",
+      "rawMessage": "{\"eventId\":\"c1a7f0de-9b1e-4c55-8f0e-2d6b7a3e4f10\",\"shipmentId\":\"unknown\", …}",
+      "detectedAt": "2026-11-25T10:14:02.317Z"
+    }
+  ]
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | integer | ID of the quarantine row. |
+| `reason` | `INVALID` \| `PROCESSING_FAILED` | `INVALID`: not JSON, or not a valid event. `PROCESSING_FAILED`: a valid event whose processing failed on the 5th or a later delivery. |
+| `subject` | string | Subject the message was published to. |
+| `streamSequence` | integer | Position of the message in the stream. |
+| `eventId` | UUID \| `null` | `null` when not known. |
+| `shipmentId` | UUID \| `null` | `null` when not known. |
+| `details` | string | What was wrong with the message (`INVALID`) or the error text (`PROCESSING_FAILED`). |
+| `rawMessage` | string | The message as it was received, stored as bytes and returned decoded as UTF-8 text, with invalid bytes replaced. It may not be valid JSON. |
+| `detectedAt` | ISO 8601, UTC | When Tracking wrote the message to the quarantine. Processing time. |
+
+`messages` is empty when there is nothing to report. A message that is still being retried is not
+listed yet.
+
+| Status | `error.code` | Meaning |
+|---|---|---|
+| `200` | | The list, also when it is empty. |
+| `400` | `VALIDATION_ERROR` | Unknown `reason`, or `limit` is not an integer from 1 to 200. |
+| `503` | `DEPENDENCY_UNAVAILABLE` | The database is unavailable or a statement hit its time limit. Retry later. |
+| `500` | `INTERNAL_ERROR` | Unexpected error. Retry later. |
+
+The error body is the same as for the read endpoints.
 
 ## Health
 
