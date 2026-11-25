@@ -21,6 +21,8 @@ This log records how AI was used, where it was wrong, and how I verified its out
 | Tracking projection (`project()`, its tests, `docs/tracking-projection.md`) | Wrote the tests, the implementation and the docs draft | Decided the rules R1–R6, reviewed the diffs |
 | Shipment Service (migrations, registration, transactional outbox and relay, HTTP API, tests) | Wrote the tests, the implementation and drafts of ADR-0007 to ADR-0009 and `docs/shipment-api.md` | Decided the API contract, idempotency rules, the outbox and `correlationId = shipmentId`; reviewed the diffs; tested it manually, including a NATS outage |
 | Scan Ingestion Service (API, publishing, tests) | Wrote the tests, the implementation and drafts of ADR-0010 and `docs/scan-ingestion-api.md` | Decided the API contract and publishing without `Nats-Msg-Id`; reviewed the diffs; tested it manually, including a NATS outage (AC-07) |
+| Shared packages `@tt/db` and `@tt/http` | Extracted the code from the services, wrote the tests and ADR-0013 | Proposed `@tt/db`; approved the rule that shared packages hold no tables or business logic |
+| Tracking Service (processing, read model, read API, tests) | Wrote the tests, the implementation and drafts of ADR-0011, ADR-0012, ADR-0014 and `docs/tracking-api.md` | Decided the data model, conflict handling and readiness rule, asked for the redesign (ADR-0014); reviewed the diffs; tested it manually (AC-01 to AC-04, AC-11, AC-12) |
 
 ## Cases where AI was wrong or incomplete
 
@@ -62,9 +64,35 @@ This log records how AI was used, where it was wrong, and how I verified its out
   test the stream contained an unexpected `parcel.delivered` event (sequence 5, published on
   2026-11-16 at 20:41 UTC, during that session).
 - **Fix:** every prompt for Claude Code now says not to run commands against my local Docker
-  infrastructure. The event exists only in my local development stream; I decide whether to
-  remove it before the Tracking Service starts reading the stream.
+  infrastructure. My local stream was reset to an empty state on 2026-11-20, before the
+  Tracking Service started reading it.
 - **Verification:** `nats stream view LOGISTICS_EVENTS` – no other unexpected events.
+
+### 6. A transaction that ended the whole service when the database went down
+
+- **What AI did:** `withTransaction`, written by AI in lesson 2.2, had no `error` listener on the
+  checked-out connection. If Postgres stopped while a transaction was open, the `pg` library
+  raised an uncaught error and the whole process ended – Shipment and Tracking, including
+  `/health/live`. No test covered it.
+- **How it was noticed:** Claude Code found it while writing database-outage tests for the
+  Tracking read API (lesson 2.4) and reproduced it in a throwaway test.
+- **Fix:** `runTransaction` in `@tt/db` keeps an error listener while a connection is checked
+  out and releases a broken connection as broken; the outbox relay uses it too.
+- **Verification:** 14 outage tests failed before the fix and pass after it; 8 deliberate
+  breaks of the fix are caught.
+
+### 7. An integration test that passed for the wrong reason
+
+- **What AI did:** the AC-07 test stops and restarts a test NATS. When the packages' tests ran
+  in parallel, Docker gave the stopped container's address to another package's NATS, so Scan
+  Ingestion sometimes got `202` from a different NATS. AI's first explanation (a reused port)
+  was wrong.
+- **How it was noticed:** the integration suite failed in 3 of 16 runs; the first fix based on
+  the wrong explanation did not hold, and the real cause was traced.
+- **Fix:** every restartable test NATS gets its own Docker network and reserved port and waits
+  until it works again after a restart; package integration tests run one at a time.
+- **Verification:** 12 of 12 full runs pass; a parallel stress run failed 0 of 264 times
+  (7 of 396 before).
 
 ## Decisions I made or explicitly approved
 
@@ -77,6 +105,12 @@ This log records how AI was used, where it was wrong, and how I verified its out
   I asked whether the stream should rather keep every accepted scan; that showed that
   deduplication in the broker would hide the consumers' deduplication in the demo (AC-02).
   I chose to publish scans without it.
+- **Tracking stores every received message** ([ADR-0014](docs/adr/0014-tracking-stores-every-message.md))
+  – the first implementation stored one copy per event and had to move rows between tables
+  to stay independent of processing order. I questioned whether it could not be written
+  better; the design was changed so that a pure function decides which copy counts.
+- **Removed `tools/nats-demo`** – it read through the real `tracking` consumer and would take
+  messages from the Tracking Service; it was no longer needed.
 
 ## How I verify AI output
 
