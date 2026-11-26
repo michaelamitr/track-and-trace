@@ -1,32 +1,31 @@
-import { spawn, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
 import { createServer, type AddressInfo } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { runMigrations, verifyNoPendingMigrations } from '@tt/db'
 import { TEST_PASSWORDS } from '@tt/db/testing'
+import { startService as spawnService, stopAllProcesses, type TestProcess } from '@tt/lifecycle/testing'
 import { LOGISTICS_STREAM, publishEvent, setupNats } from '@tt/messaging'
 import { startNats, type TestNats } from '@tt/messaging/testing'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MIGRATIONS_DIR } from './db/migrations.js'
 import { parcel, registered, SHIPMENT_ID } from './test-events.js'
-import { clearTables, readModel, startTestDatabase, receivedMessages, type TestDatabase } from './test-support.js'
-
-type RunningService = {
-  child: ChildProcess
-  /** stdout and stderr so far. */
-  output(): string
-  exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
-}
+import {
+  clearTables,
+  quarantinedEvents,
+  readModel,
+  receivedMessages,
+  startTestDatabase,
+  type TestDatabase,
+} from './test-support.js'
 
 const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url))
 const SERVICE_PASSWORD = TEST_PASSWORDS.tracking_service
 
 let db: TestDatabase
 let nats: TestNats
-let running: RunningService | undefined
 
 beforeAll(async () => {
-  ;[db, nats] = await Promise.all([startTestDatabase({ restartable: true }), startNats()])
+  ;[db, nats] = await Promise.all([startTestDatabase({ restartable: true }), startNats({ restartable: true })])
 })
 
 afterAll(async () => {
@@ -38,23 +37,15 @@ beforeEach(async () => {
   await nats.jsm.streams.delete(LOGISTICS_STREAM.name).catch(() => {})
 })
 
-afterEach(() => {
-  running?.child.kill('SIGKILL')
-  running = undefined
+// Every started service ends here, also when its test failed or timed out:
+// SIGTERM, then SIGKILL; before the containers are stopped in afterAll.
+afterEach(async () => {
+  await stopAllProcesses()
 })
 
 /** Runs main.ts in its own process with only the given variables (no .env). */
-function startService(env: Record<string, string>): RunningService {
-  const child: ChildProcess = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts'], {
-    cwd: PACKAGE_DIR,
-    env: { PATH: process.env.PATH ?? '', ...env },
-  })
-  let output = ''
-  child.stdout?.on('data', (chunk) => (output += chunk))
-  child.stderr?.on('data', (chunk) => (output += chunk))
-  const exited = once(child, 'exit').then(([code, signal]) => ({ code, signal }))
-  running = { child, output: () => output, exited }
-  return running
+function startService(env: Record<string, string>): TestProcess {
+  return spawnService({ cwd: PACKAGE_DIR, env })
 }
 
 async function startServiceExpectingFailure(env: Record<string, string>) {
@@ -89,6 +80,7 @@ async function startReadyService() {
   return { ...service, url }
 }
 
+const quarantined = () => quarantinedEvents(db.pool)
 const consumerInfo = () => nats.jsm.consumers.info(LOGISTICS_STREAM.name, 'tracking')
 
 describe('startup', () => {
@@ -107,7 +99,7 @@ describe('startup', () => {
 
       expect(code).toBe(1)
       expect(output).toContain(
-        'Pending migrations: 1795447896000_create-quarantined-events. Run pnpm db:migrate first.',
+        'Pending migrations: 1795651200000_quarantine-reasons-and-raw-message. Run pnpm db:migrate first.',
       )
       expect(output).not.toContain(SERVICE_PASSWORD)
     } finally {
@@ -147,6 +139,26 @@ describe('startup', () => {
 
     expect(code).toBe(1)
     expect(output).toContain('Consumer tracking on stream LOGISTICS_EVENTS not found. Run `pnpm nats:setup` first.')
+  })
+
+  it('g. fails fast when the "tracking" consumer has the config of an older setup', async () => {
+    await setupNats(nats.jsm)
+    await nats.jsm.consumers.update(LOGISTICS_STREAM.name, 'tracking', { max_deliver: 5 })
+
+    const started = Date.now()
+    const { code, output } = await startServiceExpectingFailure({
+      TRACKING_DATABASE_URL: db.serviceUrl,
+      NATS_URL: nats.url,
+    })
+
+    // NATS and the pool were open: they are closed under the shutdown deadline, then the exit code is 1.
+    expect(code).toBe(1)
+    expect(Date.now() - started).toBeLessThan(8_000 + 5_000)
+    expect(output).toContain('cleanup after a failed start complete')
+    expect(output).toContain(
+      'Consumer tracking on stream LOGISTICS_EVENTS has an outdated config (max_deliver is 5, expected -1). ' +
+        'Run `pnpm nats:setup` first.',
+    )
   })
 
   it('fails fast with a clear message when TRACKING_DATABASE_URL is missing', async () => {
@@ -244,20 +256,67 @@ describe('running service', () => {
       }
 
       expect((await fetch(`${service.url}/health/ready`)).status).toBe(200)
-      // The interrupted message may have used up its deliveries (lesson 3.4); a new one is processed.
+      // The interrupted message waited in process (ADR-0015) and is processed, like a new one.
       const { seq } = await publishEvent(nats.js, parcel('parcel.arrived_at_hub', '2026-10-28T09:30:00Z'))
-      await vi.waitFor(
-        async () => {
-          const rows = await receivedMessages(db.pool)
-          expect(rows.map((row) => row.stream_sequence)).toContain(String(seq))
-        },
-        { timeout: 10_000 },
-      )
+      await vi.waitFor(async () => expect((await consumerInfo()).ack_floor.stream_seq).toBe(seq), { timeout: 40_000 })
+      const rows = await receivedMessages(db.pool)
+      expect(rows.map((row) => row.stream_sequence)).toEqual(['1', '2', String(seq)])
+      expect((await consumerInfo()).num_redelivered).toBe(0)
       const res = await fetch(`${service.url}/tracking/${SHIPMENT_ID}`)
       expect(await res.json()).toMatchObject({ status: 'AT_HUB' })
     },
     60_000,
   )
+
+  it('e. ends within 8 s on SIGTERM while a message waits for the database; the message is processed after the restart', async () => {
+    const service = await startReadyService()
+    await db.postgres.stopServer()
+    let restarted = false
+    try {
+      const { seq } = await publishEvent(nats.js, registered('2026-10-28T08:00:00Z'))
+      await vi.waitFor(() => expect(service.output()).toContain('transient error, retrying the message'), {
+        timeout: 10_000,
+      })
+
+      const started = Date.now()
+      service.child.kill('SIGTERM')
+      expect(await service.exited).toEqual({ code: 0, signal: null })
+      expect(Date.now() - started).toBeLessThan(8_000)
+      expect(service.output()).toContain('stopping: message not finished, naked')
+      const stopped = await consumerInfo()
+      expect(stopped.ack_floor.stream_seq).toBe(0)
+
+      await db.postgres.startServer()
+      restarted = true
+      await startReadyService()
+      await vi.waitFor(async () => expect((await consumerInfo()).ack_floor.stream_seq).toBe(seq), { timeout: 10_000 })
+      expect(await receivedMessages(db.pool)).toHaveLength(1)
+      expect(await quarantined()).toEqual([])
+    } finally {
+      if (!restarted) await db.postgres.startServer()
+    }
+  }, 60_000)
+
+  it('f. shuts down without an error and with exit code 0 while NATS is unavailable', async () => {
+    const service = await startReadyService()
+    await nats.stopServer()
+    try {
+      await vi.waitFor(async () => {
+        const res = await fetch(`${service.url}/health/ready`)
+        expect(await res.json()).toMatchObject({ checks: { nats: 'failed' } })
+      }, { timeout: 10_000 })
+
+      const started = Date.now()
+      service.child.kill('SIGTERM')
+
+      expect(await service.exited).toEqual({ code: 0, signal: null })
+      expect(Date.now() - started).toBeLessThan(8_000)
+      expect(service.output()).not.toContain('shutdown step failed')
+      expect(service.output()).toContain('shutdown complete')
+    } finally {
+      await nats.startServer()
+    }
+  }, 60_000)
 
   it('exits with 1 when its port is taken', async () => {
     const first = await startReadyService()

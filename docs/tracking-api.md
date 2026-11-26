@@ -190,14 +190,12 @@ The same for all three read endpoints.
 | `200` | | The shipment is known. |
 | `400` | `VALIDATION_ERROR` | `shipmentId` is not a UUID. |
 | `404` | `NOT_FOUND` | The shipment is not known: no `shipment.registered` has been processed for it, even if scans exist. |
-| `503` | `DEPENDENCY_UNAVAILABLE` | The database is unavailable or a statement hit its time limit (planned, [ADR-0015](adr/0015-consumer-failure-handling.md)). Retry later. |
+| `503` | `DEPENDENCY_UNAVAILABLE` | The database is unavailable or a statement hit its time limit ([ADR-0015](adr/0015-consumer-failure-handling.md)). Retry later. |
 | `500` | `INTERNAL_ERROR` | Unexpected error. Retry later. |
 
 The error body has the same shape as in the [Shipment API](shipment-api.md#error-body).
 
 ## GET /quarantine (operational)
-
-Status: designed, not implemented yet (lesson 3.4).
 
 Messages that Tracking could not process
 ([ADR-0015](adr/0015-consumer-failure-handling.md), [AC-10](acceptance-scenarios.md)), newest
@@ -282,9 +280,15 @@ information.
 Local start: `pnpm db:migrate` and `pnpm nats:setup`, then `pnpm dev:tracking`.
 
 At startup the service fails fast if the configuration is invalid, a migration is pending
-("Run pnpm db:migrate first."), NATS is unreachable or the stream or the `tracking` consumer is
-missing ("Run `pnpm nats:setup` first."). On `SIGINT` or `SIGTERM` it first stops consuming and
-lets the message in progress finish, then closes HTTP, NATS and the database connections.
+("Run pnpm db:migrate first."), NATS is unreachable, or the stream or the `tracking` consumer is
+missing or the consumer's `max_deliver` or `ack_wait` differ from the declared config ("Run
+`pnpm nats:setup` first."). On `SIGINT` or `SIGTERM` it first stops consuming and lets the message
+in progress finish (a message waiting for the database is naked instead, so it is delivered again
+after the restart), then closes HTTP, NATS (if NATS is unavailable, the connection is closed
+without draining) and the database connections. The whole shutdown has at most 8 seconds; after
+that the service logs an error and exits with code 1
+([ADR-0015](adr/0015-consumer-failure-handling.md), rule 5). After a failed start, whatever was
+already opened is closed under the same deadline, and the exit code is always 1.
 
 ## Log
 
@@ -297,6 +301,18 @@ One structured line per processed message: `service`, `eventId`, `eventType`, `s
 | `waiting_for_registration` | A new event of a shipment that is not known yet; it was only stored. |
 | `duplicate` | An equal copy of a stored event, or a redelivery. |
 | `conflict` | A different copy of a stored event; of the two, the copy with the higher stream sequence does not count (logged as a warning). |
+
+The failure handling of the consumer ([ADR-0015](adr/0015-consumer-failure-handling.md)) logs
+these lines, each with `streamSequence`, `subject` and `deliveryCount`:
+
+| Level | `msg` | Meaning |
+|---|---|---|
+| warn | `transient error, retrying the message` | The database is unavailable or a statement hit its time limit; the same message is retried in `retryInMs`. One line per failed retry. |
+| info | `message processing recovered` | The message succeeded after `failures` failed retries. |
+| warn | `permanent error, message naked for a later delivery` | Another error on delivery 1–4; NATS delivers the message again in `retryInMs`. |
+| error | `permanent error, message quarantined` | The same on the 5th or a later delivery; the message is in the quarantine as `PROCESSING_FAILED` and acked. |
+| warn | `invalid message quarantined` | Not JSON or not a valid event; in the quarantine as `INVALID` and acked. |
+| info | `stopping: message not finished, naked` | Shutdown while the message waited; it is delivered again after the restart. |
 
 ## Simplifications (MVP)
 

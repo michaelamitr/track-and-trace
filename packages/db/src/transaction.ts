@@ -1,5 +1,5 @@
 import type pg from 'pg'
-import { translateDatabaseError } from './errors.js'
+import { isQueryReadTimeout, translateDatabaseError } from './errors.js'
 
 /**
  * Runs `work` in one transaction on one pooled client: COMMIT if it resolves,
@@ -8,6 +8,10 @@ import { translateDatabaseError } from './errors.js'
  * If the connection is lost, the current or next query of the transaction
  * rejects (at the latest the COMMIT), and the pool drops the client. `work` is
  * never abandoned: the promise settles only after it has ended.
+ *
+ * After a query read timeout (query_timeout) the server may still be running
+ * the query, so the connection is busy: a ROLLBACK would wait behind it. The
+ * client is destroyed instead, which also ends the transaction on the server.
  */
 export async function runTransaction<T>(
   pool: pg.Pool,
@@ -28,6 +32,10 @@ export async function runTransaction<T>(
     await client.query('COMMIT')
     return result
   } catch (err) {
+    if (isQueryReadTimeout(err)) {
+      broken ??= err as Error
+      throw err
+    }
     try {
       await client.query('ROLLBACK')
     } catch (rollbackErr) {

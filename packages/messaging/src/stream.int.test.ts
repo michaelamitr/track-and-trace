@@ -56,18 +56,19 @@ describe('ensureConsumer', () => {
       ack_policy: 'explicit',
       deliver_policy: 'all',
       ack_wait: nanos(30_000),
-      max_deliver: 5,
+      // Unlimited (ADR-0015).
+      max_deliver: -1,
     })
     await expect(ensureConsumer(nats.jsm, name)).resolves.toBeDefined()
   })
 
-  it('updates a drifted consumer back to the declared config', async () => {
+  it('updates a drifted consumer back to the declared config, also one with the old max_deliver 5', async () => {
     await ensureStream(nats.jsm)
     await ensureConsumer(nats.jsm, 'tracking')
-    await nats.jsm.consumers.update(LOGISTICS_STREAM.name, 'tracking', { max_deliver: 10 })
+    await nats.jsm.consumers.update(LOGISTICS_STREAM.name, 'tracking', { max_deliver: 5 })
 
     const info = await ensureConsumer(nats.jsm, 'tracking')
 
-    expect(info.config.max_deliver).toBe(5)
+    expect(info.config.max_deliver).toBe(-1)
   })
 })

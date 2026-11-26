@@ -34,6 +34,22 @@ describe('before setup', () => {
   })
 })
 
+describe('a consumer of an older setup', () => {
+  it('fails verifyConsumer with the differing settings until setupNats updates it', async () => {
+    await setupNats(nats.jsm)
+    await nats.jsm.consumers.update(LOGISTICS_STREAM.name, 'tracking', { max_deliver: 5, ack_wait: 10_000_000_000 })
+
+    await expect(verifyConsumer(nats.jsm, 'tracking')).rejects.toThrow(
+      'Consumer tracking on stream LOGISTICS_EVENTS has an outdated config ' +
+        '(max_deliver is 5, expected -1, ack_wait is 10000000000, expected 30000000000). Run `pnpm nats:setup` first.',
+    )
+
+    await setupNats(nats.jsm)
+    await expect(verifyConsumer(nats.jsm, 'tracking')).resolves.toBeUndefined()
+    expect((await nats.jsm.consumers.info(LOGISTICS_STREAM.name, 'tracking')).config.max_deliver).toBe(-1)
+  })
+})
+
 describe('setupNats', () => {
   it('creates the stream and all three consumers, a second call does not fail', async () => {
     await setupNats(nats.jsm)

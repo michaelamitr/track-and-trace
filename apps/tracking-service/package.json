@@ -18,6 +18,7 @@
     "@tt/contracts": "workspace:*",
     "@tt/db": "workspace:*",
     "@tt/http": "workspace:*",
+    "@tt/lifecycle": "workspace:*",
     "@tt/messaging": "workspace:*",
     "fastify": "^5.12.8",
     "pg": "^8.23.1",

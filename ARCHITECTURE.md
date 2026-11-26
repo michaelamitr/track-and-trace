@@ -92,10 +92,12 @@ its own database.
 | [`@tt/messaging`](packages/messaging/src) | stream and consumer configuration, publishing and consuming | services talk to NATS only through it and the official `@nats-io/*` clients ([ADR-0006](docs/adr/0006-shared-messaging-package.md)) |
 | [`@tt/db`](packages/db/src) | connection pool, transactions, "database unavailable" errors, running and verifying migrations | infrastructure only ([ADR-0013](docs/adr/0013-shared-infrastructure-packages.md)) |
 | [`@tt/http`](packages/http/src) | Fastify app, error body and error handler, health routes ([ADR-0012](docs/adr/0012-readiness-reflects-request-path.md)) | infrastructure only ([ADR-0013](docs/adr/0013-shared-infrastructure-packages.md)) |
+| [`@tt/lifecycle`](packages/lifecycle/src) | running a service's stop steps within the 8-second deadline: shutdown and cleanup after a failed start ([ADR-0015](docs/adr/0015-consumer-failure-handling.md)) | infrastructure only; the steps and their order stay in each service ([ADR-0013](docs/adr/0013-shared-infrastructure-packages.md)) |
 
-`@tt/db` and `@tt/http` contain no tables, no queries on data, no business logic and no domain
+`@tt/db`, `@tt/http` and `@tt/lifecycle` contain no tables, no queries on data, no business logic and no domain
 types. Every service keeps its own database, migration files, roles, errors and config.
-`@tt/messaging/testing` and `@tt/db/testing` start NATS and Postgres in containers for tests.
+`@tt/messaging/testing` and `@tt/db/testing` start NATS and Postgres in containers for tests;
+`@tt/lifecycle/testing` starts a service's `main.ts` as a child process and always ends it.
 `pnpm test:integration` runs the packages one at a time, to keep the load on Docker low.
 
 ## Durable consumers
@@ -137,7 +139,7 @@ Which events each consumer receives follows [EVENTS.md](EVENTS.md).
 
 ## Failure strategy
 
-(planned) The rules are the same for every consumer and are decided in
+The rules are the same for every consumer and are decided in
 [ADR-0015](docs/adr/0015-consumer-failure-handling.md).
 
 | Failure | What the consumer does |

@@ -1,17 +1,25 @@
 import { jetstream } from '@nats-io/jetstream'
 import type { LogisticsEvent } from '@tt/contracts'
 import { createPool } from '@tt/db'
-import { consumeEvents, LOGISTICS_STREAM, setupNats, type ConsumeHandle } from '@tt/messaging'
+import { LOGISTICS_STREAM, setupNats, type ConsumeHandle } from '@tt/messaging'
 import { startNats, type TestNats } from '@tt/messaging/testing'
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createEventHandler } from '../application/handle-event.js'
-import { createProcessEvent } from '../application/process-event.js'
+import { createListQuarantine } from '../application/quarantine.js'
 import { createGetAnomalies, createGetHistory, createGetTracking } from '../application/read-tracking.js'
+import { startTrackingConsumer } from '../consumer.js'
 import { createHealthChecks } from '../health.js'
 import { parcel, registered, SHIPMENT_ID } from '../test-events.js'
-import { clearTables, memoryLog, publish, startTestDatabase, waitUntilAcked, type TestDatabase } from '../test-support.js'
+import {
+  clearTables,
+  memoryLog,
+  publish,
+  startTestDatabase,
+  TEST_TIMING,
+  waitUntilAcked,
+  type TestDatabase,
+} from '../test-support.js'
 import { buildApp } from './app.js'
 
 const OTHER_SHIPMENT_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7'
@@ -35,6 +43,7 @@ function buildTestApp(pool: pg.Pool): Promise<FastifyInstance> {
     getTracking: createGetTracking({ pool }),
     getHistory: createGetHistory({ pool }),
     getAnomalies: createGetAnomalies({ pool }),
+    listQuarantine: createListQuarantine({ pool }),
     checks: createHealthChecks({ pool, nc: nats.nc }),
     logger: false,
   })
@@ -66,8 +75,7 @@ afterEach(async () => {
 
 /** Publishes to the stream and waits until the real "tracking" consumer has processed everything. */
 async function processAll(events: LogisticsEvent[], pool: pg.Pool = db.pool): Promise<void> {
-  const handler = createEventHandler({ processEvent: createProcessEvent({ pool }), log: memoryLog().log })
-  consumer ??= await consumeEvents(jetstream(nats.nc), 'tracking', handler)
+  consumer ??= await startTrackingConsumer({ js: jetstream(nats.nc), pool, log: memoryLog().log, timing: TEST_TIMING })
   await publish(nats, ...events)
   await waitUntilAcked(nats)
 }

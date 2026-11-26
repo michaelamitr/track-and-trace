@@ -16,6 +16,7 @@ const MIGRATIONS = [
   '1795447776000_create-received-messages',
   '1795447836000_create-read-model',
   '1795447896000_create-quarantined-events',
+  '1795651200000_quarantine-reasons-and-raw-message',
 ]
 const TABLES = ['quarantined_events', 'received_messages', 'shipment_tracking', 'tracking_conflicts', 'tracking_history']
 const TIME = '2026-10-28T09:30:00Z'
@@ -103,8 +104,8 @@ function quarantineRow(overrides: Row = {}): Row {
     shipment_id: randomUUID(),
     subject: 'logistics.parcel.accepted.v1',
     stream_sequence: sequence,
-    payload: '{}',
-    details: '{}',
+    raw_message: Buffer.from('{not json'),
+    details: 'Not JSON',
     ...overrides,
   }
 }
@@ -321,9 +322,40 @@ describe('as tracking_service after migrations up', () => {
       expect(rows).toEqual([{ id: expect.any(String), detected_at: expect.any(Date) }])
     })
 
+    it('accepts the reason PROCESSING_FAILED', async () => {
+      await expect(insert('quarantined_events', quarantineRow({ reason: 'PROCESSING_FAILED' }))).resolves.toBeDefined()
+    })
+
     it('rejects the reason CONFLICT: conflicts are in tracking_conflicts', async () => {
       await expect(insert('quarantined_events', quarantineRow({ reason: 'CONFLICT' }))).rejects.toMatchObject({
         code: CHECK_VIOLATION,
+      })
+    })
+
+    it('stores any bytes of the raw message unchanged, also NUL and bytes that are not UTF-8', async () => {
+      const raw = Buffer.from([0x7b, 0x00, 0xff, 0xfe, 0x7d])
+      await insert('quarantined_events', quarantineRow({ raw_message: raw }))
+
+      const { rows } = await service.query('SELECT raw_message FROM quarantined_events')
+      expect(rows).toEqual([{ raw_message: raw }])
+    })
+
+    it.each([
+      ['raw_message', NOT_NULL_VIOLATION],
+      ['details', NOT_NULL_VIOLATION],
+    ])('requires %s', async (column, code) => {
+      await expect(insert('quarantined_events', quarantineRow({ [column]: null }))).rejects.toMatchObject({ code })
+    })
+
+    it('rejects a stream_sequence that is not positive', async () => {
+      await expect(insert('quarantined_events', quarantineRow({ stream_sequence: 0 }))).rejects.toMatchObject({
+        code: CHECK_VIOLATION,
+      })
+    })
+
+    it('has no payload column any more', async () => {
+      await expect(insert('quarantined_events', quarantineRow({ payload: '{}' }))).rejects.toMatchObject({
+        code: '42703',
       })
     })
 
@@ -359,7 +391,24 @@ describe('wall-clock values', () => {
 })
 
 describe('migrations down and up again', () => {
+  it('the quarantine migration refuses a table that is not empty', async () => {
+    expect((await run('down')).map((m) => m.name)).toEqual([MIGRATIONS[3]])
+    try {
+      await service.query(
+        `INSERT INTO quarantined_events (reason, subject, stream_sequence, payload, details)
+         VALUES ('INVALID', 'logistics.parcel.accepted.v1', 1, '{}', '{}')`,
+      )
+      await expect(run('up')).rejects.toThrow('quarantined_events is not empty')
+    } finally {
+      await service.query('DELETE FROM quarantined_events')
+      await run('up')
+    }
+  })
+
   it('down removes the tables in reverse order, up recreates them', async () => {
+    expect((await run('down')).map((m) => m.name)).toEqual([MIGRATIONS[3]])
+    expect(await tables()).toEqual(TABLES)
+
     expect((await run('down')).map((m) => m.name)).toEqual([MIGRATIONS[2]])
     expect(await tables()).toEqual(['received_messages', 'shipment_tracking', 'tracking_conflicts', 'tracking_history'])
 

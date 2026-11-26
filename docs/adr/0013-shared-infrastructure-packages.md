@@ -1,6 +1,6 @@
 # ADR-0013: Shared infrastructure packages
 
-Status: Accepted (recorded 2026-11-23)
+Status: Accepted (recorded 2026-11-23, amended 2026-11-26)
 
 ## Context
 
@@ -28,6 +28,8 @@ parameter and never import from a service.
 | `@tt/db` | `createPool`, `runTransaction`, `withTransaction`, `DatabaseUnavailableError` and its detection; `runMigrations` and `verifyNoPendingMigrations` for a given directory; the body of the migrate CLI | the database, its roles and URLs, the migration `.sql` files and their tests, every table and query, the outbox and its relay |
 | `@tt/db/testing` | `startPostgres` (Testcontainers) | which role and database a test connects to |
 | `@tt/http` | `createHttpApp` (Zod, Swagger, 404 handler, logger), the error body and the shared error codes, `NotFoundError`, the error handler with the generic cases, the health routes (ADR-0012) | routes, schemas, title and description, own error codes, the mapping of own errors, the checks and which of them are required, `config.ts` |
+| `@tt/lifecycle` (amendment 2026-11-26) | running the service's stop steps with a deadline: the shutdown and the cleanup after a failed start (`runShutdown`, `cleanUpAfterFailedStart`) | which steps, their order, the deadline value |
+| `@tt/lifecycle/testing` | starting `main.ts` as a child process in tests and always ending it (SIGTERM, then SIGKILL) | the environment a test starts the service with |
 
 Two clarifications of the rule:
 
@@ -50,6 +52,19 @@ Two clarifications of the rule:
 - Negative: the rule is checked in review, not by a tool.
 - Neutral: the packages are used as TypeScript sources in the monorepo, so there is no versioning
   between a package and the services.
+
+## Amendment 2026-11-26
+
+A third package, `@tt/lifecycle` ([`packages/lifecycle`](../../packages/lifecycle/src)), runs a
+service's stop steps in order within a deadline
+([ADR-0015](0015-consumer-failure-handling.md), rule 5): on `SIGTERM` or `SIGINT`, and to clean up
+after a failed start, so that a hanging step can never leave a live process that does nothing. The
+same rule as above applies: it gets the steps as a parameter and knows no service, no table and no
+connection type.
+
+It is a package of its own and not part of `@tt/http`: it is infrastructure shared by all three
+services, but it has nothing to do with HTTP. Closing the HTTP server is only one of its steps, next
+to stopping the consumer or the outbox relay, closing NATS and ending the pool.
 
 ## Rejected alternatives
 

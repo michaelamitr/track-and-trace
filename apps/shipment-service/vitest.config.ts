@@ -14,6 +14,8 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: ['src/**/*.int.test.ts'],
+          // Kills a started main.ts that a test left behind, also after a worker was ended.
+          globalSetup: ['@tt/lifecycle/test-global-setup'],
           // Starting a container takes a few seconds.
           hookTimeout: 60_000,
           testTimeout: 20_000,

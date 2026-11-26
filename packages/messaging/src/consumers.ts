@@ -25,9 +25,11 @@ function consumerConfig(name: ConsumerName): Partial<ConsumerConfig> {
     filter_subjects: [...FILTER_SUBJECTS[name]],
     ack_policy: AckPolicy.Explicit,
     deliver_policy: DeliverPolicy.All,
+    // consumeEvents sends "still working" well within it (ADR-0015 rule 2).
     ack_wait: nanos(30_000),
-    // Revisited in lesson 3.4 (retries, backoff, dead letters).
-    max_deliver: 5,
+    // Unlimited: NATS never gives up on a message; the consumer quarantines it
+    // after the 5th delivery with a permanent error (ADR-0015 rule 3).
+    max_deliver: -1,
   }
 }
 

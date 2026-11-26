@@ -24,12 +24,15 @@ import {
   readModel,
   receivedMessages,
   startTestDatabase,
+  TEST_TIMING,
   trackingConflicts,
   waitUntilAcked,
   type TestDatabase,
 } from '../test-support.js'
+import { isTransient } from '../consumer.js'
 import { createEventHandler } from './handle-event.js'
 import { createProcessEvent } from './process-event.js'
+import { createQuarantine } from './quarantine.js'
 
 const TRACKING_NUMBER = 'PF-4821093375'
 const OTHER_SHIPMENT_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7'
@@ -65,9 +68,19 @@ function trackingHandler(pool: pg.Pool = db.pool): EventHandler {
   return createEventHandler({ processEvent: createProcessEvent({ pool }), log: logged.log })
 }
 
-/** Starts the real "tracking" consumer. */
+/**
+ * Starts the "tracking" consumer as main.ts does, with short delays. Its own
+ * log lines (retries, naks) go to a logger of their own, so `logged` has only
+ * the result lines of the handler.
+ */
 async function startConsuming(handler: EventHandler = trackingHandler()): Promise<ConsumeHandle> {
-  const handle = await consumeEvents(jetstream(nats.nc), 'tracking', handler)
+  const handle = await consumeEvents(jetstream(nats.nc), 'tracking', {
+    handler,
+    isTransient,
+    quarantine: createQuarantine({ pool: db.pool }),
+    log: memoryLog().log,
+    timing: TEST_TIMING,
+  })
   handles.push(handle)
   return handle
 }
@@ -247,7 +260,6 @@ describe('failure between write and ACK', () => {
   }
 
   it('counts nothing twice when a committed message is delivered again', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
     const { registration, accepted, delivered } = journey()
     const deliveries: MessageMetadata[] = []
     await startConsuming(failingAfterCommit(deliveries))
@@ -302,7 +314,6 @@ describe('failure between write and ACK', () => {
   }
 
   it('does not ack before the commit: a message whose commit failed is delivered again and processed', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
     const { registration } = journey()
     await startConsuming(trackingHandler(failingFirstCommit(db.pool)))
 
@@ -380,7 +391,6 @@ describe('AC-12: conflicts', () => {
   })
 
   it('adds no row when the same conflicting message is delivered again, and acks it', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
     const { registration, atHub } = journey()
     const conflicting = { ...atHub, data: { ...atHub.data, facilityId: 'DEPOT-OSTRAVA' } }
     const handler = trackingHandler()
@@ -470,24 +480,22 @@ describe('conflicts processed out of stream order', () => {
 
   const sequences = () => logged.lines.map((line) => line.streamSequence)
 
-  /** The real handler, but the first delivery of these messages fails before anything is written. */
+  /**
+   * The real handler, but the first delivery of these messages fails with a
+   * permanent error before anything is written. The message is naked with a
+   * delay, so the next message is processed before its redelivery.
+   */
   function failingFirstDelivery(...failing: number[]): EventHandler {
     const handler = trackingHandler()
     return async (event, metadata) => {
       if (failing.includes(metadata.streamSequence) && metadata.deliveryCount === 1) {
-        // Wait until the next message is on its way, so the redelivery comes after it.
-        await vi.waitFor(async () => {
-          const info = await nats.jsm.consumers.info(LOGISTICS_STREAM.name, 'tracking')
-          expect(info.num_ack_pending).toBeGreaterThan(1)
-        })
-        throw new Error('database unavailable')
+        throw new Error('processing failed')
       }
       await handler(event, metadata)
     }
   }
 
   it('keeps the copy with the lower stream sequence when it is redelivered after a different copy', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
     const { registration, atHub } = journey()
     const second = { ...atHub, receivedAt: '2026-10-28T10:00:00Z', data: { ...atHub.data, facilityId: 'DEPOT-OSTRAVA' } }
     await publish(nats, registration, atHub, second)
@@ -517,7 +525,6 @@ describe('conflicts processed out of stream order', () => {
   })
 
   it('moves the event and a replaced registration between shipments, as a replay does', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
     // Two different registrations with one eventId: the first one is for the other shipment.
     const second = registered('2026-10-28T08:00:00Z')
     const first = registered('2026-10-28T08:00:00Z', { eventId: second.eventId, shipmentId: OTHER_SHIPMENT_ID })

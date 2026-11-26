@@ -27,13 +27,18 @@ export async function verifyStream(jsm: JetStreamManager): Promise<void> {
   }
 }
 
+// The settings the failure handling of consumeEvents relies on (ADR-0015).
+const VERIFIED_SETTINGS = ['max_deliver', 'ack_wait'] as const
+
 /**
  * Read-only check for services at startup: throws if the durable consumer
- * (or the stream it belongs to) is missing.
+ * (or the stream it belongs to) is missing, or if its max_deliver or ack_wait
+ * differ from the declared config (an older setup).
  */
 export async function verifyConsumer(jsm: JetStreamManager, name: ConsumerName): Promise<void> {
+  let info
   try {
-    await jsm.consumers.info(LOGISTICS_STREAM.name, name)
+    info = await jsm.consumers.info(LOGISTICS_STREAM.name, name)
   } catch (err) {
     if (
       isApiError(err, JetStreamApiCodes.ConsumerNotFound) ||
@@ -45,5 +50,13 @@ export async function verifyConsumer(jsm: JetStreamManager, name: ConsumerName):
       )
     }
     throw err
+  }
+  const differences = VERIFIED_SETTINGS.filter((key) => info.config[key] !== CONSUMERS[name][key]).map(
+    (key) => `${key} is ${info.config[key]}, expected ${CONSUMERS[name][key]}`,
+  )
+  if (differences.length > 0) {
+    throw new Error(
+      `Consumer ${name} on stream ${LOGISTICS_STREAM.name} has an outdated config (${differences.join(', ')}). ${SETUP_HINT}`,
+    )
   }
 }

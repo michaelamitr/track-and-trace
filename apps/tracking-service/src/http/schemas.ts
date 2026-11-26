@@ -57,4 +57,31 @@ export const AnomaliesResponseSchema = z.object({
   ),
 })
 
+export const QUARANTINE_REASONS = ['INVALID', 'PROCESSING_FAILED'] as const
+
+export const QuarantineQuerySchema = z.object({
+  reason: z.enum(QUARANTINE_REASONS).optional().meta({ description: 'Only messages with this reason. Default: all.' }),
+  limit: z.coerce.number().int().min(1).max(200).default(50).meta({ description: '1–200, default 50.' }),
+})
+
+export const QuarantineResponseSchema = z.object({
+  messages: z.array(
+    z.object({
+      id: z.int().positive(),
+      reason: z.enum(QUARANTINE_REASONS),
+      subject: z.string(),
+      streamSequence: z.int().positive(),
+      eventId: z.uuid().nullable(),
+      shipmentId: z.uuid().nullable(),
+      details: z.string(),
+      rawMessage: z
+        .string()
+        .meta({ description: 'The message as received, decoded as UTF-8 with invalid bytes replaced; may not be JSON.' }),
+      detectedAt: TimeSchema.meta({ description: 'When Tracking wrote the message to the quarantine (processing time).' }),
+    }),
+  ),
+})
+
+export type QuarantineResponse = z.infer<typeof QuarantineResponseSchema>
+
 export const ErrorBodySchema = errorBodySchema()

@@ -50,6 +50,7 @@ const atHubResponse = {
 const getTracking = vi.fn()
 const getHistory = vi.fn()
 const getAnomalies = vi.fn()
+const listQuarantine = vi.fn()
 const checks = { database: vi.fn(), nats: vi.fn() }
 let app: FastifyInstance
 
@@ -57,7 +58,7 @@ beforeEach(async () => {
   vi.resetAllMocks()
   checks.database.mockResolvedValue(undefined)
   checks.nats.mockResolvedValue(undefined)
-  app = await buildApp({ getTracking, getHistory, getAnomalies, checks, logger: false })
+  app = await buildApp({ getTracking, getHistory, getAnomalies, listQuarantine, checks, logger: false })
 })
 
 afterEach(async () => {
@@ -217,7 +218,93 @@ describe.each([
   })
 })
 
+describe('GET /quarantine', () => {
+  const stored = {
+    id: 7,
+    reason: 'INVALID',
+    subject: 'logistics.parcel.arrived_at_hub.v1',
+    streamSequence: 1057,
+    eventId: 'c1a7f0de-9b1e-4c55-8f0e-2d6b7a3e4f10',
+    shipmentId: null,
+    details: 'shipmentId: Invalid UUID',
+    // A BOM, a NUL, a byte that is not UTF-8 and a two-byte character.
+    rawMessage: Buffer.from([0xef, 0xbb, 0xbf, 0x7b, 0x00, 0xff, 0xc3, 0xa9, 0x7d]),
+    detectedAt: new Date('2026-11-25T10:14:02.317Z'),
+  }
+
+  it('returns the messages with the raw message decoded as UTF-8, invalid bytes replaced', async () => {
+    listQuarantine.mockResolvedValue([stored])
+
+    const res = await get('/quarantine')
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      messages: [
+        {
+          ...stored,
+          rawMessage: '\uFEFF{\u0000\uFFFDé}',
+          detectedAt: '2026-11-25T10:14:02.317Z',
+        },
+      ],
+    })
+    expect(listQuarantine).toHaveBeenCalledExactlyOnceWith({ limit: 50 })
+  })
+
+  it('returns an empty list', async () => {
+    listQuarantine.mockResolvedValue([])
+
+    const res = await get('/quarantine?reason=PROCESSING_FAILED')
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ messages: [] })
+  })
+
+  it.each([
+    ['INVALID', '1', { reason: 'INVALID', limit: 1 }],
+    ['PROCESSING_FAILED', '200', { reason: 'PROCESSING_FAILED', limit: 200 }],
+  ])('passes reason %s and limit %s on', async (reason, limit, expected) => {
+    listQuarantine.mockResolvedValue([])
+
+    const res = await get(`/quarantine?reason=${reason}&limit=${limit}`)
+
+    expect(res.statusCode).toBe(200)
+    expect(listQuarantine).toHaveBeenCalledExactlyOnceWith(expected)
+  })
+
+  it.each([
+    ['limit=0', 'querystring.limit'],
+    ['limit=201', 'querystring.limit'],
+    ['limit=1.5', 'querystring.limit'],
+    ['limit=abc', 'querystring.limit'],
+    ['limit=', 'querystring.limit'],
+    ['reason=CONFLICT', 'querystring.reason'],
+    ['reason=invalid', 'querystring.reason'],
+  ])('returns 400 VALIDATION_ERROR for %s and reads nothing', async (query, path) => {
+    const res = await get(`/quarantine?${query}`)
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR', details: [{ path }] } })
+    expect(listQuarantine).not.toHaveBeenCalled()
+  })
+
+  it('returns 503 DEPENDENCY_UNAVAILABLE when the database is unavailable', async () => {
+    listQuarantine.mockRejectedValue(new DatabaseUnavailableError({ cause: new Error('timeout') }))
+
+    const res = await get('/quarantine')
+
+    expect(res.statusCode).toBe(503)
+    expect(res.json()).toMatchObject({ error: { code: 'DEPENDENCY_UNAVAILABLE' } })
+  })
+})
+
 describe('OpenAPI document', () => {
+  it('describes GET /quarantine with its parameters and status codes', async () => {
+    const { parameters, responses } = (await get('/docs/json')).json().paths['/quarantine'].get
+
+    expect(parameters.map((p: { name: string }) => p.name).sort()).toEqual(['limit', 'reason'])
+    expect(Object.keys(responses)).toEqual(['200', '400', '500', '503'])
+  })
+
   it('describes the read endpoints with all their status codes', async () => {
     const res = await get('/docs/json')
 

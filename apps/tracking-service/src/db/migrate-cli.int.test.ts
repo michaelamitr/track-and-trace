@@ -37,7 +37,7 @@ describe('migrate-cli', () => {
     )
 
     const down = await migrateCli('down', env)
-    expect(down.stdout).toContain('Reverted: 1795447896000_create-quarantined-events')
+    expect(down.stdout).toContain('Reverted: 1795651200000_quarantine-reasons-and-raw-message')
   })
 
   it('exits with 1 and names the variable when it is missing', async () => {

@@ -72,7 +72,7 @@ Response body for `201` and `200`:
 A NATS outage does not fail the request: the event waits in the outbox.
 
 An SQL statement that hits its time limit is answered with `503`, like an unavailable database
-(planned, [ADR-0015](adr/0015-consumer-failure-handling.md)). This also holds for
+([ADR-0015](adr/0015-consumer-failure-handling.md)). This also holds for
 `GET /shipments/:shipmentId`.
 
 ### Repeated requests

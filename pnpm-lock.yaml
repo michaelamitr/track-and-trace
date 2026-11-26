@@ -190,6 +190,9 @@ importers:
       '@tt/http':
         specifier: workspace:*
         version: link:../../packages/http
+      '@tt/lifecycle':
+        specifier: workspace:*
+        version: link:../../packages/lifecycle
       '@tt/messaging':
         specifier: workspace:*
         version: link:../../packages/messaging
@@ -227,6 +230,9 @@ importers:
       '@tt/http':
         specifier: workspace:*
         version: link:../../packages/http
+      '@tt/lifecycle':
+        specifier: workspace:*
+        version: link:../../packages/lifecycle
       '@tt/messaging':
         specifier: workspace:*
         version: link:../../packages/messaging
@@ -267,6 +273,9 @@ importers:
       '@tt/http':
         specifier: workspace:*
         version: link:../../packages/http
+      '@tt/lifecycle':
+        specifier: workspace:*
+        version: link:../../packages/lifecycle
       '@tt/messaging':
         specifier: workspace:*
         version: link:../../packages/messaging
@@ -339,6 +348,8 @@ importers:
       pino:
         specifier: ^10.4.0
         version: 10.4.0
+
+  packages/lifecycle: {}
 
   packages/messaging:
     dependencies:

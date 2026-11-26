@@ -3,8 +3,8 @@
 Operational procedures for Track & Trace. The rules behind them are in
 [ADR-0015](docs/adr/0015-consumer-failure-handling.md).
 
-Status: draft. The quarantine and `GET /quarantine` are designed but not implemented yet
-(lesson 3.4).
+Status: draft. The quarantine and `GET /quarantine` exist in the Tracking Service; SLA monitoring
+and Notification are planned.
 
 The `nats` commands need the [NATS CLI](https://github.com/nats-io/natscli); it is not part of the
 compose images. SQL on `tracking_db`:
@@ -30,7 +30,8 @@ planned; until then their backlog only grows.
 
 | What you see | Likely meaning |
 |---|---|
-| Unprocessed grows, floor does not move | The consumer is not taking messages. It is stopped, or it waits for the database: check `GET /health/ready` and the retry warnings in the log. Processing continues by itself once the database is back. |
+| Unprocessed grows, floor does not move | The consumer is not taking messages. It is stopped, or it waits for the database: check `GET /health/ready` and the warnings `transient error, retrying the message` in the log. Processing continues by itself once the database is back. |
+| The same, the database is fine, and the warnings say `already quarantined with another message` | The stream was reset without `tracking_db` ([ADR-0014](docs/adr/0014-tracking-stores-every-message.md)): a stream sequence is quarantined with other bytes. Writing to the quarantine is retried without a limit, so the consumer stays paused until the stream and `tracking_db` are reset together. |
 | Unprocessed near 0, Redelivered above 0 | Single messages fail with permanent errors and wait for their next attempt. After about 2.5 minutes they are in the quarantine. |
 | Unprocessed grows, the service restarts again and again, or the log stops at one message | One message ends the process or never finishes. It does not reach the quarantine (ADR-0015, remaining risk); find its stream sequence just above the floor and fix the cause. |
 | Unprocessed falls, floor moves | The consumer is catching up. |
@@ -45,7 +46,7 @@ curl 'http://127.0.0.1:3003/quarantine?reason=PROCESSING_FAILED'
 SLA monitoring and Notification will have their own quarantine and `GET /quarantine` (planned).
 
 All fields are described in [tracking-api.md](docs/tracking-api.md#get-quarantine-operational). The
-same in SQL on `tracking_db` (column names as planned):
+same in SQL on `tracking_db`:
 
 ```sql
 SELECT id, reason, subject, stream_sequence, event_id, shipment_id, details,
@@ -69,7 +70,7 @@ A quarantined message is not in the read model. Check what the customer sees wit
 
 ## Reprocessing a quarantined message
 
-Planned procedure. **Nothing here is automated**: there is no reprocess endpoint and no "resolved"
+A manual procedure. **Nothing here is automated**: there is no reprocess endpoint and no "resolved"
 mark, the row stays in `quarantined_events`, and nothing checks that the message was reprocessed.
 
 Publishing stores a new message in the stream, and every consumer of the subject receives it.

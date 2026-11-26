@@ -126,6 +126,32 @@ describe('a connection lost while the client is checked out', () => {
   })
 })
 
+describe('a query read timeout', () => {
+  it('destroys the client without sending ROLLBACK, which would wait behind the stuck query', async () => {
+    const timeout = new Error('Query read timeout')
+    const { pool, queries, release } = fakePool({ WORK: timeout })
+
+    const failure = await withTransaction(pool, async (client) => {
+      await client.query('WORK')
+    }).catch((err: unknown) => err)
+
+    expect(failure).toBeInstanceOf(DatabaseUnavailableError)
+    expect((failure as Error).cause).toBe(timeout)
+    expect(queries).toEqual(['BEGIN', 'WORK'])
+    expect(release).toHaveBeenCalledExactlyOnceWith(timeout)
+  })
+
+  it('at COMMIT also destroys the client without ROLLBACK', async () => {
+    const timeout = new Error('Query read timeout')
+    const { pool, queries, release } = fakePool({ COMMIT: timeout })
+
+    await expect(withTransaction(pool, async () => {})).rejects.toBeInstanceOf(DatabaseUnavailableError)
+
+    expect(queries).toEqual(['BEGIN', 'COMMIT'])
+    expect(release).toHaveBeenCalledExactlyOnceWith(timeout)
+  })
+})
+
 describe('runTransaction', () => {
   it('rejects with the errors as they are', async () => {
     const cause = Object.assign(new Error('refused'), { code: 'ECONNREFUSED' })

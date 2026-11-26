@@ -5,7 +5,7 @@ Status: Accepted (recorded 2026-11-25)
 Amends [ADR-0005](0005-quarantine-conflicting-events.md),
 [ADR-0006](0006-shared-messaging-package.md),
 [ADR-0010](0010-scan-ingestion-publishing.md) and
-[ADR-0014](0014-tracking-stores-every-message.md). Designed, not implemented yet (lesson 3.4).
+[ADR-0014](0014-tracking-stores-every-message.md). Implemented in lesson 3.4.
 
 ## Context
 

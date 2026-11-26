@@ -15,6 +15,7 @@
     "@nats-io/transport-node": "^3.4.0",
     "@tt/contracts": "workspace:*",
     "@tt/http": "workspace:*",
+    "@tt/lifecycle": "workspace:*",
     "@tt/messaging": "workspace:*",
     "fastify": "^5.12.8",
     "pino": "^10.4.0",

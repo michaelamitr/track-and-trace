@@ -10,10 +10,15 @@ afterEach(async () => {
 })
 
 describe('createPool', () => {
-  it('limits the connections and the time to wait for one', () => {
+  it('limits the connections, the time to wait for one and the time of every statement (ADR-0015)', () => {
     pool = createPool('postgres://user:secret@127.0.0.1:1/some_db')
 
-    expect(pool.options).toMatchObject({ max: 10, connectionTimeoutMillis: 5_000 })
+    expect(pool.options).toMatchObject({
+      max: 10,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 5_000,
+      query_timeout: 6_000,
+    })
   })
 
   it('logs an error of an idle client instead of crashing', () => {

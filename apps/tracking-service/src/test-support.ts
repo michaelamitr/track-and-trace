@@ -2,7 +2,7 @@
 import type { LogisticsEvent } from '@tt/contracts'
 import { createPool, runMigrations } from '@tt/db'
 import { startPostgres, type TestPostgres } from '@tt/db/testing'
-import { LOGISTICS_STREAM, publishEvent } from '@tt/messaging'
+import { LOGISTICS_STREAM, publishEvent, type ConsumerTiming } from '@tt/messaging'
 import type { TestNats } from '@tt/messaging/testing'
 import pg from 'pg'
 import { pino } from 'pino'
@@ -46,6 +46,15 @@ export async function startTestDatabase(options: { restartable?: boolean } = {})
       await postgres.stop()
     },
   }
+}
+
+/** Short delays of the failure handling (ADR-0015), so a nak'ed message returns quickly in a test. */
+export const TEST_TIMING: ConsumerTiming = {
+  retryBaseMs: 100,
+  retryMaxMs: 400,
+  nakDelaysMs: [300, 300, 300, 300],
+  workingIntervalMs: 1_000,
+  fetchExpiresMs: 1_000,
 }
 
 export async function clearTables(owner: pg.Pool): Promise<void> {

@@ -1,15 +1,12 @@
-import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { promisify } from 'node:util'
 import { runMigrations, verifyNoPendingMigrations } from '@tt/db'
 import { TEST_PASSWORDS } from '@tt/db/testing'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { startService, stopAllProcesses } from '@tt/lifecycle/testing'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { MIGRATIONS_DIR } from './db/migrations.js'
 import { startTestDatabase, type TestDatabase } from './test-support.js'
 
-const run = promisify(execFile)
 const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url))
-const TSX = fileURLToPath(new URL('../node_modules/.bin/tsx', import.meta.url))
 const SERVICE_PASSWORD = TEST_PASSWORDS.shipment_service
 
 let db: TestDatabase
@@ -22,19 +19,18 @@ afterAll(async () => {
   await db?.stop()
 })
 
-/** Starts main.ts like `pnpm start` and expects it to exit with an error. */
+// Every started service ends here, also when its test failed or timed out:
+// SIGTERM, then SIGKILL; before the containers are stopped in afterAll.
+afterEach(async () => {
+  await stopAllProcesses()
+})
+
+/** Starts main.ts like `pnpm start` (without .env) and expects it to exit with an error. */
 async function startServiceExpectingFailure(env: Record<string, string>) {
-  try {
-    await run(TSX, ['src/main.ts'], {
-      cwd: PACKAGE_DIR,
-      env: { PATH: process.env.PATH ?? '', ...env },
-      timeout: 20_000,
-    })
-  } catch (err) {
-    const { code, stdout, stderr } = err as { code: number; stdout: string; stderr: string }
-    return { code, output: stdout + stderr }
-  }
-  throw new Error('main.ts exited successfully')
+  const service = startService({ cwd: PACKAGE_DIR, env })
+  const { code } = await service.exited
+  if (code === 0) throw new Error('main.ts exited successfully')
+  return { code, output: service.output() }
 }
 
 describe('startup', () => {
