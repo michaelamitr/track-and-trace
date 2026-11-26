@@ -23,6 +23,7 @@ This log records how AI was used, where it was wrong, and how I verified its out
 | Scan Ingestion Service (API, publishing, tests) | Wrote the tests, the implementation and drafts of ADR-0010 and `docs/scan-ingestion-api.md` | Decided the API contract and publishing without `Nats-Msg-Id`; reviewed the diffs; tested it manually, including a NATS outage (AC-07) |
 | Shared packages `@tt/db` and `@tt/http` | Extracted the code from the services, wrote the tests and ADR-0013 | Proposed `@tt/db`; approved the rule that shared packages hold no tables or business logic |
 | Tracking Service (processing, read model, read API, tests) | Wrote the tests, the implementation and drafts of ADR-0011, ADR-0012, ADR-0014 and `docs/tracking-api.md` | Decided the data model, conflict handling and readiness rule, asked for the redesign (ADR-0014); reviewed the diffs; tested it manually (AC-01 to AC-04, AC-11, AC-12) |
+| Consumer failure handling (retries, quarantine, query time limits, shutdown, `@tt/lifecycle`, `RUNBOOK.md`) | Wrote the tests, the implementation and drafts of ADR-0015 and the RUNBOOK; found gaps in my first rules (unlimited `max_deliver`, raw bytes in the quarantine) | Decided the rules: which errors are transient, the retry delays, quarantine of invalid messages instead of dropping them, `GET /quarantine`, the 8-second shutdown; reviewed the diffs; tested AC-10 by hand |
 
 ## Cases where AI was wrong or incomplete
 
@@ -94,6 +95,22 @@ This log records how AI was used, where it was wrong, and how I verified its out
 - **Verification:** 12 of 12 full runs pass; a parallel stress run failed 0 of 264 times
   (7 of 396 before).
 
+### 8. A database outage would have skipped messages
+
+- **What AI proposed:** the consumer written in lessons 2.1–2.4 answered every processing error
+  with an immediate `nak`, and the consumer allowed 5 deliveries (`max_deliver: 5`). While the
+  database was down, every message used up its deliveries within moments and NATS stopped
+  delivering it: Tracking would never have processed the scans received during the outage.
+- **How I noticed:** I asked what happens when the database is down for a long time. Working
+  through the answer showed the problem; no test covered an outage longer than one delivery.
+- **Fix:** [ADR-0015](docs/adr/0015-consumer-failure-handling.md): a database outage or a query
+  time limit is a transient error, retried in the process without a limit, one message at a
+  time; other errors are retried with growing delays and quarantined on the 5th delivery;
+  `max_deliver` is unlimited, so NATS never drops a message.
+- **Verification:** an integration test stops Postgres while messages arrive: nothing is lost
+  or quarantined, no delivery is used up, and everything is processed once Postgres is back.
+  Each of 19 deliberate breaks of the rules fails a test.
+
 ## Decisions I made or explicitly approved
 
 - **Architecture decisions are recorded in `docs/adr/`** (see the index in [docs/adr/README.md](docs/adr/README.md)).
@@ -111,6 +128,10 @@ This log records how AI was used, where it was wrong, and how I verified its out
   better; the design was changed so that a pure function decides which copy counts.
 - **Removed `tools/nats-demo`** – it read through the real `tracking` consumer and would take
   messages from the Tracking Service; it was no longer needed.
+- **Shutdown code in its own package `@tt/lifecycle`**
+  ([ADR-0013 amendment](docs/adr/0013-shared-infrastructure-packages.md)) – Claude Code put it
+  into `@tt/http` and AI recommended keeping it there. I chose a separate package: the code is
+  shared infrastructure but has nothing to do with HTTP.
 
 ## How I verify AI output
 
@@ -121,4 +142,9 @@ This log records how AI was used, where it was wrong, and how I verified its out
 - Review changes in the real repository, not in pasted snippets.
 - Mutation testing: a test suite is trusted only if deliberately broken implementations make it fail.
 - Every ADR records a decision I explicitly approved.
-- Test failure scenarios by hand, not only with automated tests: stopping NATS while the Shipment Service was running showed that the service cannot start without NATS and that shutdown fails when NATS is down – neither was caught by the tests.
+- Test failure scenarios by hand, not only with automated tests: stopping NATS while the
+  Shipment Service was running showed that the service cannot start without NATS and that
+  shutdown fails when NATS is down – neither was caught by the tests. The shutdown is fixed
+  (ADR-0015); starting without NATS is planned. Since lesson 3.4, outages are covered by
+  integration tests with real containers, and I test by hand the acceptance scenarios and the
+  steps of the final demo (for example AC-10).
